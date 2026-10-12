@@ -1,0 +1,19 @@
+# What the dev pipeline reads about this project.
+# Schema: ${CLAUDE_PLUGIN_ROOT}/docs/project-contract.md
+
+spec_repo = "../NotificationsSpecs"
+design_philosophy = "docs/change-discipline.md"
+
+[test_phase]
+# Local for now (the gates, every touched image built by hand, then the push):
+# no app runs and nothing is deployed yet. The slices that build them extend
+# the doc with their live and deployed checks.
+strategy = "docs/slice-test-plan.md"
+
+[doc_phase]
+plan = "docs/slice-doc-plan.md"
+
+[push]
+enabled = true
+
+# No [devlock]: there is no dev instance to occupy.

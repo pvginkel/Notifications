@@ -12,6 +12,9 @@ build/
 .coverage
 htmlcov/
 
+# Scratch output, such as the test phase's image-build logs
+/tmp/
+
 # Local settings. This repo is public: no secret is ever committed.
 .env
 .env.*
