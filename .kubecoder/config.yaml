@@ -1,0 +1,47 @@
+# The environment for Notifications, the bridge that puts one API over ntfy
+# and Telegram: the service, and the repos its work touches.
+# Schema: https://kubecoder.home/help/reference/config-yaml/
+
+repos:
+  # Its spec repo: the design and its slices. Shared: one clone per project,
+  # mounted into every environment of it, because parallel sessions read and
+  # append to the one working tree.
+  - url: https://github.com/pvginkel/NotificationsSpecs
+    shared: true
+  # Where Notifications deploys: the chart running ntfy and the bridge in one
+  # pod, and its prd values, which CI pins the image into. Argo CD syncs it.
+  - url: https://github.com/pvginkel/NotificationsDeploy
+
+capabilities:
+  github: rw
+
+tools:
+  # The bridge: Python with uv and ruff.
+  - use: python
+  # NotificationsDeploy's Helm and Terraform gates.
+  - use: iac
+  # Its architecture gates: gen-architecture and arch-validate.
+  - use: aac-tools
+
+# Proves the bridge's Dockerfile with `kaniko --no-push` before a push hands
+# it to Jenkins.
+imageBuilder: true
+
+preamble:
+  instructions: |
+    Notifications' environment: the bridge (/work/Notifications), with its
+    design and slices in /work/NotificationsSpecs and its deployment in
+    /work/NotificationsDeploy.
+
+    Three toolchain sidecars:
+
+      cexec python      Python with uv and ruff: the bridge.
+      cexec iac         Terraform and Helm: the deploy repo's gates.
+      cexec aac-tools   gen-architecture and arch-validate: the deploy
+                        repo's architecture gates.
+
+    `kaniko --no-push` proves a Dockerfile; never push a `dev-*` or `prd-*`
+    tag from here, those are Jenkins'.
+
+    /work/NotificationsSpecs is a SHARED working tree: stage files by name
+    there, never `git add -A`.
