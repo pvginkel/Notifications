@@ -1,0 +1,21 @@
+{
+  // The repository root, plus the sibling repos the environment checks out. The
+  // apps are not listed separately: the root folder already covers them, and
+  // adding them would show every file twice in the explorer.
+  "folders": [
+    { "path": "." },
+    { "path": "../NotificationsSpecs" },
+    { "path": "../NotificationsDeploy" }
+  ],
+  // No tasks: starting a Claude session and every `kc project` verb are commands
+  // the KubeCoder VS Code extension already publishes (F1 -> "KubeCoder: ..."),
+  // and there is no dev runner yet. One that comes later gets a "Dev Services"
+  // task here.
+  "settings": {
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/.pytest_cache": true,
+      "**/.ruff_cache": true
+    }
+  }
+}

@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+
+# What the gates leave behind
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local settings. This repo is public: no secret is ever committed.
+.env
+.env.*
+
+# Claude Code's per-checkout overrides
+.claude/settings.local.json

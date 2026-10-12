@@ -1,5 +1,6 @@
-# The environment for Notifications, the bridge that puts one API over ntfy
-# and Telegram: the service, and the repos its work touches.
+# The environment for Notifications, the notification platform that puts one
+# API over ntfy and Telegram: its apps (a uv workspace, the bridge first), and
+# the repos its work touches.
 # Schema: https://kubecoder.home/help/reference/config-yaml/
 
 repos:
@@ -16,26 +17,28 @@ capabilities:
   github: rw
 
 tools:
-  # The bridge: Python with uv and ruff.
+  # The apps' uv workspace: Python with uv and ruff.
   - use: python
   # NotificationsDeploy's Helm and Terraform gates.
   - use: iac
   # Its architecture gates: gen-architecture and arch-validate.
   - use: aac-tools
 
-# Proves the bridge's Dockerfile with `kaniko --no-push` before a push hands
-# it to Jenkins.
+# Proves the apps' Dockerfiles with `kaniko --no-push` before a push hands
+# them to Jenkins.
 imageBuilder: true
 
 preamble:
   instructions: |
-    Notifications' environment: the bridge (/work/Notifications), with its
-    design and slices in /work/NotificationsSpecs and its deployment in
+    Notifications' environment: the platform's apps (/work/Notifications, a
+    uv workspace with one member per app, the bridge first), with their
+    design and slices in /work/NotificationsSpecs and their deployment in
     /work/NotificationsDeploy.
 
     Three toolchain sidecars:
 
-      cexec python      Python with uv and ruff: the bridge.
+      cexec python      Python with uv and ruff: the apps' workspace, whose
+                        gates are `kc project` from /work/Notifications.
       cexec iac         Terraform and Helm: the deploy repo's gates.
       cexec aac-tools   gen-architecture and arch-validate: the deploy
                         repo's architecture gates.

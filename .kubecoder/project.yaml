@@ -1,0 +1,32 @@
+# Curated entry points for Notifications: a uv workspace whose members are the
+# notification platform's apps, one directory per deployable. No app exists yet
+# (the bridge is the first slice), so this is the workspace's skeleton.
+#
+# Why the apps will NOT be separate components: they are members of one uv
+# workspace under one ruff config and one pytest config, whose discovery from the
+# root reaches every member. A component per app would make a full
+# `kc project test` run the same suite once per app, so `root` owns the whole
+# Python gate. A component is for a build unit whose toolchain differs. To run
+# one app's tests alone: `cexec python uv run --all-packages pytest <app dir>`.
+#
+# Toolchain commands carry their `cexec` prefix here and only here: a script
+# Jenkins also runs stays cexec-free, because Jenkins has neither `cexec` nor `kc`.
+#
+# Not here yet, each with the slice that brings it:
+# - `test:`: with no member there is no suite, and pytest exits 5 on an empty
+#   collection. The first app wires `cexec python uv run --all-packages pytest`.
+# - `build:` and `jenkins:`: there is no image and no Jenkins job. Images stay out
+#   of `build:` (CI builds them with `helmCharts.kaniko2`); prove a Dockerfile by
+#   hand with `kaniko --no-push`, never a `dev-*` or `prd-*` tag.
+
+projects:
+  root:
+    description: >-
+      The uv workspace of the notification platform's apps (the bridge first):
+      one ruff config and one pytest config over the whole Python tree.
+    # --all-packages: the root is package = false, so a plain `uv sync` installs
+    # only the root's dev group and none of the members.
+    setup: cexec python uv sync --all-packages --locked
+    lint:
+      - cexec python uv run --all-packages ruff check .
+      - cexec python uv run --all-packages ruff format --check .

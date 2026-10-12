@@ -1,0 +1,42 @@
+# uv workspace root for Notifications, the notification platform's code. The root
+# is not a package (`package = false`); it only coordinates the members: one
+# directory per deployable app, each its own uv project with its own Dockerfile,
+# the KubeCoder monorepo's shape. The bridge (the design's §3) is the first app.
+# An app joins by adding its directory to `members` and running `uv lock`.
+[project]
+name = "notifications-workspace"
+version = "0"
+requires-python = ">=3.13"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = []
+
+[dependency-groups]
+# Ruff is pinned so the lint gate does not float with whatever the python
+# toolchain image ships.
+dev = [
+    "pytest>=9",
+    "ruff==0.17.0",
+]
+
+[tool.pytest.ini_options]
+# importlib mode lets identically-named test modules (test_api.py) coexist across
+# the members' test directories without __init__.py shims. No `testpaths`:
+# discovery from the root reaches every member, so a new app is gated by default.
+# -q --tb=short is the token-lean default for agent sessions: the summary line on
+# green, file:line tracebacks on red.
+addopts = "--import-mode=importlib -q --tb=short"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
+
+# Stated at defaults: `ruff format` runs the whole Python tree at ruff's own
+# defaults under the line length above, gated by `kc project lint`.
+[tool.ruff.format]
