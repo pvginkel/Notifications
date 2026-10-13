@@ -1,0 +1,60 @@
+# Architecture artifact of producer `notifications`: the notification bridge's logical architecture.
+# The product, the API it exposes and what it consumes. Hand-authored: this file is the source of
+# truth and its ids are minted once. The running instance, its host and its Specialization edge to
+# the product below are `notifications-deploy`'s (pvginkel/NotificationsDeploy).
+schemaVersion: "0.1"
+producer: notifications
+
+applicationComponents:
+  - id: app:notification-bridge,e98c89db-f37c-4aa1-b0f8-fe4bd60ec37c
+    label: Notification Bridge
+    summary: One API over ntfy and Telegram. A sender submits and dismisses notifications under its registration's bearer token, and the bridge delivers them to the registration's ntfy topic and Telegram chats, updating and clearing them by sequence id.
+    introduced: 2026-10-13
+    lifecycle: active
+    stereotype: SoftwareProduct
+    sourceRepository: git:pvginkel/Notifications
+    stats:
+      image: registry:5000/notification-bridge
+
+applicationServices:
+  - id: svc:notification-bridge-api,f6e41b1a-70cd-4a6e-a1f5-d7a693c6436c
+    label: Notification Bridge API
+    summary: HTTP API on port 8090 — submit (POST /v1/submit) and dismiss (POST /v1/dismiss) a notification, answered with each channel's outcome.
+    introduced: 2026-10-13
+    lifecycle: active
+
+applicationInterfaces:
+  - id: if:notification-bridge-api-senders,16ccacac-923e-408b-b4ff-df3c8fd2cd93
+    label: Notification Bridge API (senders)
+    summary: Submit and dismiss behind a static bearer token per registration, consumed by the senders' adapters — Jenkins, Alertmanager and KubeCoder.
+    introduced: 2026-10-13
+    lifecycle: active
+
+relations:
+  # --- The exposed surface ---
+  - id: rel:notification-bridge-realizes-api
+    source: app:notification-bridge,e98c89db-f37c-4aa1-b0f8-fe4bd60ec37c
+    target: svc:notification-bridge-api,f6e41b1a-70cd-4a6e-a1f5-d7a693c6436c
+    type: Realization
+
+  - id: rel:notification-bridge-api-senders-interface
+    source: if:notification-bridge-api-senders,16ccacac-923e-408b-b4ff-df3c8fd2cd93
+    target: svc:notification-bridge-api,f6e41b1a-70cd-4a6e-a1f5-d7a693c6436c
+    type: Assignment
+
+  # --- What the bridge consumes ---
+  # ntfy, which shows and clears the notifications on the phones. The target is ntfy's API, the
+  # ApplicationService `svc:ntfy-api` (label "ntfy API") whose declaration under this UUID is
+  # `notifications-deploy`'s.
+  - id: rel:notification-bridge-consumes-ntfy
+    source: app:notification-bridge,e98c89db-f37c-4aa1-b0f8-fe4bd60ec37c
+    target: svc:16e7e972-37b2-4a2d-b08e-dbfee1b4a1f2
+    type: Association
+    boundBy: "env:NTFY_URL"
+
+  # --- External services ---
+  # Each registration's bot sends, edits and deletes the messages in its chats, at api.telegram.org.
+  - id: rel:telegram-serves-notification-bridge
+    source: svc:telegram-bot-api,6708ef33-aaf7-4acd-a10d-560d7a7e1d48
+    target: app:notification-bridge,e98c89db-f37c-4aa1-b0f8-fe4bd60ec37c
+    type: Serving
