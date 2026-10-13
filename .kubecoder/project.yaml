@@ -11,16 +11,16 @@
 # Toolchain commands carry their `cexec` prefix here and only here: a script
 # Jenkins also runs stays cexec-free, because Jenkins has neither `cexec` nor `kc`.
 #
-# Not here yet, each with the slice that brings it:
-# - `build:` and `jenkins:`: there is no image and no Jenkins job. Images stay out
-#   of `build:` (CI builds them with `helmCharts.kaniko2`); prove a Dockerfile by
-#   hand with `kaniko --no-push`, never a `dev-*` or `prd-*` tag.
+# No `build:`: images stay out of it, because the Jenkins job builds them with
+# `helmCharts.kaniko2`. Prove a Dockerfile by hand from the repo root with
+# `kaniko --dockerfile <app>/Dockerfile --no-push`, never a `dev-*` or `prd-*` tag.
 
 projects:
   root:
     description: >-
       The uv workspace of the notification platform's apps (the bridge first):
       one ruff config and one pytest config over the whole Python tree.
+    jenkins: Notifications
     # --all-packages: the root is package = false, so a plain `uv sync` installs
     # only the root's dev group and none of the members.
     setup: cexec python uv sync --all-packages --locked

@@ -1,0 +1,8 @@
+# Every image builds from the repository root, where the workspace's uv.lock lives, so this file
+# decides every image's context. It admits only what an image build reads.
+*
+!pyproject.toml
+!uv.lock
+!bridge/pyproject.toml
+!bridge/src
+**/__pycache__

@@ -1,0 +1,52 @@
+"""run-suite: the workspace's test suite, run the way JenkinsPipelineUtils' modernApp.test runs it.
+
+The step runs `<run> run-suite --output-mode full --junitxml-dir <dir> --retries <n>` at the
+repository root and counts the `===SUITE_RESULT:<stem>:<passed>:<failed>:<skipped>===` line
+printed for each JUnit file. This runs pytest once over the whole tree, as `kc project test` does,
+writes its JUnit file as `<dir>/pytest.xml`, prints that file's line, and exits with pytest's code.
+"""
+
+import argparse
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+SUITE = "pytest"
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="run-suite", description=__doc__.splitlines()[0])
+    parser.add_argument("--output-mode", choices=["full"], required=True)
+    parser.add_argument("--junitxml-dir", type=Path, required=True)
+    parser.add_argument(
+        "--retries",
+        type=int,
+        required=True,
+        help="on the step's command line for browser suites; pytest runs each test once",
+    )
+    args = parser.parse_args(argv)
+
+    junit = args.junitxml_dir / f"{SUITE}.xml"
+    code = subprocess.run([sys.executable, "-m", "pytest", f"--junitxml={junit}"]).returncode
+    # pytest writes no JUnit file when it stops before its session starts (a conftest that does
+    # not import, a usage error). Without the line the step reports the suite as unknown, and the
+    # exit code fails the build.
+    if junit.is_file():
+        print(suite_result(junit), flush=True)
+    return code
+
+
+def suite_result(junit: Path) -> str:
+    root = ET.parse(junit).getroot()
+    suites = root.findall("testsuite") if root.tag == "testsuites" else [root]
+    tests, failures, errors, skipped = (
+        sum(int(suite.get(count, 0)) for suite in suites)
+        for count in ("tests", "failures", "errors", "skipped")
+    )
+    passed = tests - failures - errors - skipped
+    return f"===SUITE_RESULT:{SUITE}:{passed}:{failures + errors}:{skipped}==="
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
