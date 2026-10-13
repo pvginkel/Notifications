@@ -129,9 +129,12 @@ def test_an_update_at_the_same_or_a_lower_priority_edits_in_place_with_the_mark_
     ]
 
 
-def test_an_update_that_changes_nothing_is_not_modified_and_counts_as_taken(bridge, fake_telegram):
+def test_an_update_that_changes_nothing_is_not_modified_and_counts_as_taken(
+    bridge, fake_telegram, clock
+):
     bridge.submit(sequence_id="slice-061", message="started")
     fake_telegram.sent()
+    clock.advance(timedelta(hours=1))
 
     response = bridge.submit(sequence_id="slice-061", message="started")
 
@@ -140,7 +143,8 @@ def test_an_update_that_changes_nothing_is_not_modified_and_counts_as_taken(brid
         ("editMessageText", GROUP, 1),
         ("editMessageText", PRIVATE, 2),
     ]
-    assert [row[2] for row in telegram_rows(bridge)] == [1, 2]
+    # The row is written again, so that a sequence resubmitted unchanged outlives the prune.
+    assert [(row[2], row[4]) for row in telegram_rows(bridge)] == [(1, ONE), (2, ONE)]
 
 
 def test_a_rise_deletes_the_message_and_sends_it_fresh_so_that_it_notifies(
