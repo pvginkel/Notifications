@@ -1,11 +1,14 @@
 import asyncio
 import contextlib
+import itertools
+import json
 import sqlite3
 import textwrap
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import httpx2
 import pytest
@@ -110,6 +113,112 @@ class FakeNtfy:
         return refusal(request)
 
 
+@dataclass(frozen=True)
+class TelegramCall:
+    bot_token: str
+    method: str
+    fields: dict[str, Any]
+
+
+class FakeTelegram:
+    """The Bot API as the bridge reaches it: records every call and keeps each chat's messages.
+
+    It answers an edit or a delete of a message the chat does not have as Telegram does (not
+    found), and an edit that changes nothing (not modified). It takes every other call unless told
+    to refuse.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[TelegramCall] = []
+        # Each chat's messages: message id to text.
+        self.chats: dict[str, dict[int, str]] = {}
+        self._message_ids = itertools.count(1)
+        self._refusals: dict[
+            tuple[str, str | None], Callable[[httpx2.Request], httpx2.Response]
+        ] = {}
+
+    @property
+    def transport(self) -> httpx2.MockTransport:
+        return httpx2.MockTransport(self._handle)
+
+    def refuse(
+        self, method: str, description: str, *, chat: str | None = None, status: int = 400
+    ) -> None:
+        """Refuse every `method` call, in `chat` or in any, the way Telegram refuses."""
+        body = {"ok": False, "error_code": status, "description": description}
+        self._refusals[(method, chat)] = lambda request: httpx2.Response(status, json=body)
+
+    def answer(self, method: str, status: int, text: str) -> None:
+        """Answer every `method` call with `status` and a body that is not Telegram's."""
+        self._refusals[(method, None)] = lambda request: httpx2.Response(status, text=text)
+
+    def go_down(self) -> None:
+        def refuse_connection(request: httpx2.Request) -> httpx2.Response:
+            raise httpx2.ConnectError("[Errno 111] Connection refused", request=request)
+
+        self._refusals = {
+            (method, None): refuse_connection
+            for method in ("sendMessage", "editMessageText", "deleteMessage")
+        }
+
+    def recover(self) -> None:
+        self._refusals = {}
+
+    def delete_by_hand(self, chat: str, message_id: int) -> None:
+        del self.chats[chat][message_id]
+
+    def sent(self) -> list[tuple[str, str, int | None]]:
+        """Each call's method, chat and message id (None on a send); the record is cleared."""
+        calls = [
+            (call.method, call.fields["chat_id"], call.fields.get("message_id"))
+            for call in self.calls
+        ]
+        self.calls.clear()
+        return calls
+
+    async def _handle(self, request: httpx2.Request) -> httpx2.Response:
+        bot_token, _, method = request.url.path.removeprefix("/bot").partition("/")
+        fields = json.loads(request.content)
+        self.calls.append(TelegramCall(bot_token, method, fields))
+        # Lets another request run meanwhile, as Telegram's answer would.
+        await asyncio.sleep(0)
+        chat = fields["chat_id"]
+        refusal = self._refusals.get((method, chat)) or self._refusals.get((method, None))
+        if refusal is not None:
+            return refusal(request)
+        messages = self.chats.setdefault(chat, {})
+        if method == "sendMessage":
+            message_id = next(self._message_ids)
+            messages[message_id] = fields["text"]
+            return _taken({"message_id": message_id, "chat": {"id": chat}, "text": fields["text"]})
+        message_id = fields["message_id"]
+        if method == "editMessageText":
+            if message_id not in messages:
+                return _refused("Bad Request: message to edit not found")
+            if messages[message_id] == fields["text"]:
+                return _refused(
+                    "Bad Request: message is not modified: specified new message content and"
+                    " reply markup are exactly the same as a current content and reply markup of"
+                    " the message"
+                )
+            messages[message_id] = fields["text"]
+            return _taken({"message_id": message_id, "chat": {"id": chat}, "text": fields["text"]})
+        if method == "deleteMessage":
+            if message_id not in messages:
+                return _refused("Bad Request: message to delete not found")
+            del messages[message_id]
+            return _taken(True)
+        raise AssertionError(f"the bridge called {method}")
+
+
+def _taken(result: object) -> httpx2.Response:
+    return httpx2.Response(200, json={"ok": True, "result": result})
+
+
+def _refused(description: str) -> httpx2.Response:
+    return httpx2.Response(400, json={"ok": False, "error_code": 400, "description": description})
+
+
 class Clock:
     def __init__(self) -> None:
         self.now = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
@@ -124,6 +233,11 @@ class Clock:
 @pytest.fixture
 def fake_ntfy() -> FakeNtfy:
     return FakeNtfy()
+
+
+@pytest.fixture
+def fake_telegram() -> FakeTelegram:
+    return FakeTelegram()
 
 
 @pytest.fixture
@@ -186,13 +300,18 @@ class Bridge:
 
 
 @pytest.fixture
-def start_bridge(make_env, fake_ntfy, clock) -> Iterator[Callable[[str], Bridge]]:
-    """Start a bridge on a registrations file, against the fake ntfy and the clock."""
+def start_bridge(make_env, fake_ntfy, fake_telegram, clock) -> Iterator[Callable[[str], Bridge]]:
+    """Start a bridge on a registrations file, against the fakes and the clock."""
     with contextlib.ExitStack() as running:
 
         def start(registrations: str = REGISTRATIONS) -> Bridge:
             config = load_config(make_env(registrations))
-            app = create_app(config, ntfy_transport=fake_ntfy.transport, now=clock)
+            app = create_app(
+                config,
+                ntfy_transport=fake_ntfy.transport,
+                telegram_transport=fake_telegram.transport,
+                now=clock,
+            )
             client = running.enter_context(TestClient(app))
             return Bridge(app, client, config.state_dir / "state.db")
 

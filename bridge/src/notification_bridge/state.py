@@ -1,8 +1,9 @@
 """The bridge's state: one SQLite table of what an update or a dismiss needs, never content.
 
 A row is one channel's hold on one open sequence of a registration. ntfy keeps one row per
-sequence: the priority and the generation its notification is published under. A row holds no
-title and no message text.
+sequence: the priority and the generation its notification is published under. Telegram keeps one
+row per chat: the priority and the id of the message the chat shows. A row holds no title and no
+message text.
 """
 
 import sqlite3
@@ -37,6 +38,12 @@ class NtfyRow:
     generation: int
 
 
+@dataclass(frozen=True)
+class TelegramRow:
+    priority: Priority
+    message_id: int
+
+
 class State:
     def __init__(self, path: Path, now: Callable[[], datetime]) -> None:
         # The event loop's thread is the only one that uses the connection, and it need not be the
@@ -68,6 +75,42 @@ class State:
         self._db.execute(
             "DELETE FROM sequence WHERE registration = ? AND sequence_id = ? AND channel = 'ntfy'",
             (registration, sequence_id),
+        )
+
+    def telegram_rows(self, registration: str, sequence_id: str) -> dict[str, TelegramRow]:
+        """The sequence's rows by chat id."""
+        rows = self._db.execute(
+            "SELECT chat_id, priority, message_id FROM sequence"
+            " WHERE registration = ? AND sequence_id = ? AND channel = 'telegram'",
+            (registration, sequence_id),
+        )
+        return {
+            chat_id: TelegramRow(Priority(priority), message_id)
+            for chat_id, priority, message_id in rows
+        }
+
+    def put_telegram_row(
+        self, registration: str, sequence_id: str, chat_id: str, row: TelegramRow
+    ) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO sequence"
+            " (registration, sequence_id, channel, chat_id, message_id, priority, last_updated)"
+            " VALUES (?, ?, 'telegram', ?, ?, ?, ?)",
+            (
+                registration,
+                sequence_id,
+                chat_id,
+                row.message_id,
+                row.priority.value,
+                self._timestamp(),
+            ),
+        )
+
+    def delete_telegram_row(self, registration: str, sequence_id: str, chat_id: str) -> None:
+        self._db.execute(
+            "DELETE FROM sequence"
+            " WHERE registration = ? AND sequence_id = ? AND channel = 'telegram' AND chat_id = ?",
+            (registration, sequence_id, chat_id),
         )
 
     def prune(self) -> int:

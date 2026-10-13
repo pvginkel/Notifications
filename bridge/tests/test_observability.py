@@ -173,3 +173,20 @@ def test_the_served_log_configuration_writes_the_bridges_lines_as_json():
         "event": "dismiss",
         "registration": "jenkins",
     }
+
+
+def test_the_served_log_configuration_never_logs_a_request_url():
+    # A Telegram request's URL holds the bot token.
+    script = (
+        "import logging, logging.config\n"
+        "from notification_bridge.logs import log_config\n"
+        "logging.config.dictConfig(log_config())\n"
+        "logging.getLogger().setLevel(logging.DEBUG)\n"
+        "print(logging.getLogger('httpx2').isEnabledFor(logging.INFO))\n"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+    )
+
+    assert result.stdout == "False\n"

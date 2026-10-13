@@ -22,9 +22,11 @@ from notification_bridge.logs import log
 from notification_bridge.metrics import Metrics
 from notification_bridge.ntfy import Ntfy
 from notification_bridge.state import State
+from notification_bridge.telegram import API_URL, Telegram
 
 PRUNE_EVERY = timedelta(days=1)
 NTFY_TIMEOUT = 10  # seconds, per call
+TELEGRAM_TIMEOUT = 10  # seconds, per call
 
 
 class Channel(Protocol):
@@ -47,9 +49,10 @@ def create_app(
     config: Config,
     *,
     ntfy_transport: httpx2.AsyncBaseTransport | None = None,
+    telegram_transport: httpx2.AsyncBaseTransport | None = None,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> Starlette:
-    """The bridge. `ntfy_transport` and `now` stand in for the network and the clock in tests."""
+    """The bridge. The transports and `now` stand in for the network and the clock in tests."""
     state = State(config.state_dir / "state.db", now)
     ntfy_client = httpx2.AsyncClient(
         base_url=config.ntfy_url,
@@ -57,7 +60,11 @@ def create_app(
         timeout=NTFY_TIMEOUT,
         transport=ntfy_transport,
     )
-    bridge = _Bridge(config.registrations, [Ntfy(ntfy_client, state, config.icon_base_url)], state)
+    telegram_client = httpx2.AsyncClient(
+        base_url=API_URL, timeout=TELEGRAM_TIMEOUT, transport=telegram_transport
+    )
+    channels = [Ntfy(ntfy_client, state, config.icon_base_url), Telegram(telegram_client, state)]
+    bridge = _Bridge(config.registrations, channels, state)
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
@@ -68,6 +75,7 @@ def create_app(
         with contextlib.suppress(asyncio.CancelledError):
             await pruning
         await ntfy_client.aclose()
+        await telegram_client.aclose()
         state.close()
 
     return Starlette(

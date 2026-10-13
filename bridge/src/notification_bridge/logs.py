@@ -29,4 +29,6 @@ def log_config() -> dict:
         "stream": "ext://sys.stderr",
     }
     config["loggers"][log.name] = {"handlers": ["json"], "level": "INFO", "propagate": False}
+    # httpx2 logs each request's URL at INFO, and a Telegram request's URL holds the bot token.
+    config["loggers"]["httpx2"] = {"level": "WARNING"}
     return config

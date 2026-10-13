@@ -4,7 +4,7 @@ from datetime import timedelta
 import pytest
 from notification_bridge.app import prune_daily
 from notification_bridge.render import Priority
-from notification_bridge.state import NtfyRow, State
+from notification_bridge.state import NtfyRow, State, TelegramRow
 
 
 @pytest.fixture
@@ -30,6 +30,36 @@ def test_the_prune_deletes_the_rows_last_updated_over_90_days_ago(state, clock):
     assert state.ntfy_row("alerts", "touched") == NtfyRow(Priority.LOW, 1)
 
 
+def test_the_prune_deletes_telegram_rows_by_the_same_rule(state, clock):
+    state.put_telegram_row("jenkins", "slice-061", "-100111", TelegramRow(Priority.HIGH, 7))
+    clock.advance(timedelta(days=1))
+    state.put_telegram_row("jenkins", "slice-061", "222", TelegramRow(Priority.HIGH, 8))
+    clock.advance(timedelta(days=89, seconds=1))
+
+    assert state.prune() == 1
+
+    assert state.telegram_rows("jenkins", "slice-061") == {"222": TelegramRow(Priority.HIGH, 8)}
+
+
+def test_telegram_rows_are_kept_per_chat_beside_the_ntfy_row(state):
+    state.put_ntfy_row("jenkins", "slice-061", NtfyRow(Priority.LOW, 0))
+    state.put_telegram_row("jenkins", "slice-061", "-100111", TelegramRow(Priority.LOW, 7))
+    state.put_telegram_row("jenkins", "slice-061", "222", TelegramRow(Priority.LOW, 8))
+    state.put_telegram_row("jenkins", "slice-061", "222", TelegramRow(Priority.MAX, 9))
+    state.put_telegram_row("alerts", "slice-061", "222", TelegramRow(Priority.MIN, 1))
+
+    assert state.telegram_rows("jenkins", "slice-061") == {
+        "-100111": TelegramRow(Priority.LOW, 7),
+        "222": TelegramRow(Priority.MAX, 9),
+    }
+
+    state.delete_telegram_row("jenkins", "slice-061", "-100111")
+
+    assert state.telegram_rows("jenkins", "slice-061") == {"222": TelegramRow(Priority.MAX, 9)}
+    assert state.ntfy_row("jenkins", "slice-061") == NtfyRow(Priority.LOW, 0)
+    assert state.telegram_rows("jenkins", "other") == {}
+
+
 def test_the_prune_keeps_a_row_of_exactly_90_days(state, clock):
     state.put_ntfy_row("jenkins", "slice-061", NtfyRow(Priority.HIGH, 0))
     clock.advance(timedelta(days=90))
@@ -42,8 +72,14 @@ def test_the_open_rows_are_counted_per_registration_and_channel(state):
     state.put_ntfy_row("jenkins", "b", NtfyRow(Priority.HIGH, 0))
     state.put_ntfy_row("alerts", "a", NtfyRow(Priority.HIGH, 0))
     state.delete_ntfy_row("jenkins", "b")
+    state.put_telegram_row("jenkins", "a", "-100111", TelegramRow(Priority.HIGH, 1))
+    state.put_telegram_row("jenkins", "a", "222", TelegramRow(Priority.HIGH, 2))
 
-    assert state.open_rows() == {("jenkins", "ntfy"): 1, ("alerts", "ntfy"): 1}
+    assert state.open_rows() == {
+        ("jenkins", "ntfy"): 1,
+        ("alerts", "ntfy"): 1,
+        ("jenkins", "telegram"): 2,
+    }
 
 
 def test_the_state_survives_a_restart(tmp_path, clock):
