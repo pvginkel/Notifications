@@ -65,7 +65,7 @@ def parse_dismissal(body: bytes) -> str:
 def _fields(body: bytes, known: set[str]) -> dict[str, object]:
     try:
         fields = json.loads(body)
-    except ValueError as error:
+    except (ValueError, RecursionError) as error:
         raise Refusal(400, f"the body is not JSON: {error}") from error
     if not isinstance(fields, dict):
         raise Refusal(400, "the body must be a JSON object")

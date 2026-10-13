@@ -99,7 +99,11 @@ def test_a_submit_refuses_a_malformed_or_oversized_body(bridge, fake_ntfy, body,
     assert fake_ntfy.calls == []
 
 
-@pytest.mark.parametrize("body", [b"", b"{", b"\xff"])
+# A body nested past the interpreter's recursion limit is refused like any other malformed one.
+DEEP = b'{"message": ' + b"[" * 200_000 + b"]" * 200_000 + b"}"
+
+
+@pytest.mark.parametrize("body", [b"", b"{", b"\xff", pytest.param(DEEP, id="nested-too-deep")])
 def test_a_submit_refuses_a_body_that_is_not_json(bridge, body):
     response = bridge.submit(body)
 
