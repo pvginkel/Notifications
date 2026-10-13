@@ -82,6 +82,10 @@ RENDERER_TABLE = [
         '<a href="https://e.invalid/p.png">https://e.invalid/p.png</a>',
     ),
     ("[![alt](https://e.invalid/p.png)](https://e.invalid)", '<a href="https://e.invalid">alt</a>'),
+    (
+        "[a <https://x.invalid> **b**](https://e.invalid)",
+        '<a href="https://e.invalid">a https://x.invalid <b>b</b></a>',
+    ),
     ("# Heading\n\ntext", "<b>Heading</b>\n\ntext"),
     ("Setext *h*\n===", "<b>Setext <i>h</i></b>"),
     ("one\n\ntwo", "one\n\ntwo"),

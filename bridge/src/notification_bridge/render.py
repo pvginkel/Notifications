@@ -140,8 +140,8 @@ def _inlines(nodes: list[SyntaxTreeNode], within: frozenset[str]) -> tuple[_Node
     """The inline nodes, `within` the tags that enclose them.
 
     Telegram nests no code in bold, italic, strikethrough or a link, and no link in a link
-    (core.telegram.org/bots/api, Formatting options): enclosed, code is plain text, and an image
-    in a link is its alt text.
+    (core.telegram.org/bots/api, Formatting options): enclosed, code is plain text, a link in a
+    link is its text, and an image in a link is its alt text.
     """
     rendered: list[_Node] = []
     for node in nodes:
@@ -158,7 +158,10 @@ def _inlines(nodes: list[SyntaxTreeNode], within: frozenset[str]) -> tuple[_Node
             case "link":
                 href = node.attrs["href"]
                 text = _inlines(node.children, within | {"a"}) or (href,)
-                rendered.append(_Element("a", text, href=href))
+                if "a" in within:
+                    rendered.extend(text)
+                else:
+                    rendered.append(_Element("a", text, href=href))
             case "image":
                 src = node.attrs["src"]
                 alt = node.content or src
