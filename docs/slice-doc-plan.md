@@ -14,17 +14,18 @@ actually reached it.
 The public face, and the bridge's API reference: the adapters in other repos code against it, so it
 carries the endpoints, their fields and limits, the status codes, the per-channel result, and what a
 sequence id and a priority do. A slice that changes the API brings it up to date in the same pass,
-and a slice that adds an app adds that app's section. Until then it holds the repo's layout and how
-to run the gates.
+and a slice that adds an app adds that app's section. Beside the apps' sections, it holds the repo's
+layout and how to run the gates.
 
 ### 2. `docs/`
 
 Small topic docs, one subject each, for what the README does not carry: an app's configuration (the
-registrations file, its environment), its state, its rendering rules, its metrics. The design in
-the spec repo is the input the apps are built from, not their documentation: as slices build what it
-describes, the design *as built* lands here, and a topic doc never points a reader at the spec repo
-for how something works. This repo is public and the spec repo is not, so a doc here has to stand on
-its own.
+registrations file, its environment), its state, its rendering rules, its metrics. The bridge's
+configuration and state are in [`bridge-configuration.md`](bridge-configuration.md); its rendering
+and its metrics are part of its API, in the README. The design in the spec repo is the input the
+apps are built from, not their documentation: as slices build what it describes, the design *as
+built* lands here, and a topic doc never points a reader at the spec repo for how something works.
+This repo is public and the spec repo is not, so a doc here has to stand on its own.
 
 The change discipline, this plan and the slice testing strategy live here too. A slice that changes
 what they describe (an app that is now runnable, an image CI now builds, a deployment that now
@@ -39,8 +40,9 @@ doc so that the file does not grow. Nothing the pipeline reads by machine goes i
 
 ### 4. `.kubecoder/project.yaml`
 
-Its comments say why each verb is wired or left out ("no `test:` yet: no app"). A slice that wires a
-verb or adds a component keeps those comments true.
+Its comments say why each verb is wired or left out ("No `build:`: images stay out of it, because
+the Jenkins job builds them"). A slice that wires a verb or adds a component keeps those comments
+true.
 
 ### 5. Other repos
 

@@ -12,7 +12,8 @@ slices live in NotificationsSpecs.
 A sender holds the bearer token of its **registration**. The registration, set up by the
 deployment, says where its notifications go: an ntfy topic with the registration's icon, one or
 more Telegram chats reached by the registration's own bot, or both. Those are the registration's
-**channels**. A sender never names itself or its channels: the token selects them.
+**channels**. A sender never names itself or its channels: the token selects them. How a deployment
+configures the bridge is in [`docs/bridge-configuration.md`](docs/bridge-configuration.md).
 
 ### Endpoints
 
@@ -126,7 +127,12 @@ sequence whose priority never rose is still updated and cleared in place.
 - When Telegram refuses both the delete and the fallback edit of a dismiss (below), the result says
   so, and the dismiss can be repeated.
 - Resubmitting a sequence is safe: where a channel already shows it, the resubmit updates it, and
-  where it failed, the resubmit tries again. A one-shot resubmitted is a second notification.
+  where a channel failed to show it, the resubmit tries again. A one-shot resubmitted is a second
+  notification.
+- A rise's take-down of the old notification is not retried. When ntfy's clear fails, or Telegram's
+  delete and its fallback edit both fail (see [Priorities](#priorities)), and the new notification
+  goes out, the result says so and the old one stays beside the new: a resubmit or a dismiss acts
+  on the new one only.
 - Submits and dismisses of one sequence take turns: the second waits until the first has its result.
 
 ### Priorities
@@ -173,8 +179,8 @@ all the same. When it refuses the delete of a dismiss, the message is edited to 
 
 ntfy keeps a message as notification text only while it is under ntfy's message size limit, 4096
 bytes of UTF-8 by default. The bridge passes the message on as it is, so a message near 4096
-characters, or a shorter one in a non-Latin script, can be over that. ntfy then takes it as an attachment, or refuses it, as the ntfy server is
-set up.
+characters, or a shorter one in a non-Latin script, can be over that. ntfy then takes it as an
+attachment, or refuses it, as the ntfy server is set up.
 
 ### Observability
 
@@ -188,16 +194,21 @@ set up.
 ## Layout
 
 A uv workspace: one member directory per deployable app, each its own uv project with its own
-Dockerfile. The root `pyproject.toml` holds the one ruff and pytest configuration and the workspace's
-`uv.lock`.
+Dockerfile. The root `pyproject.toml` holds the one ruff and pytest configuration, and the
+workspace's `uv.lock` sits beside it.
 
-- `bridge/`: the notification bridge, the package `notification_bridge` and its tests.
+- `bridge/`: the notification bridge, the package `notification_bridge`, its tests and its
+  `Dockerfile`.
+- `Jenkinsfile` and `run-suite`: CI. On each push to `main`, Jenkins runs the suite through
+  `run-suite`, builds the bridge's image, `registry:5000/notification-bridge`, and pins its tag into
+  NotificationsDeploy.
+- `docs/bridge-configuration.md`: the bridge's environment, registrations file, state and image.
 - `docs/architecture/architecture.yaml`: the bridge's architecture model, the product, the API it
   exposes and what it consumes.
 
 ## Development
 
 `kc project setup` syncs the workspace into `.venv`; `kc project lint` runs ruff's check and format
-check over the whole tree, and `kc project test` runs the pytest suite of every member, with fakes in
-place of ntfy and Telegram. `cexec aac-tools arch-validate docs/architecture/architecture.yaml`
-validates the architecture model.
+check over the whole tree, and `kc project test` runs the pytest suite over the whole tree, with
+fakes in place of ntfy and Telegram.
+`cexec aac-tools arch-validate docs/architecture/architecture.yaml` validates the architecture model.

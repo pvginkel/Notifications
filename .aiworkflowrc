@@ -5,9 +5,10 @@ spec_repo = "../NotificationsSpecs"
 design_philosophy = "docs/change-discipline.md"
 
 [test_phase]
-# Local for now (the gates, every touched image built by hand, then the push):
-# no app runs and nothing is deployed yet. The slices that build them extend
-# the doc with their live and deployed checks.
+# Local for now (the gates, every touched image built by hand, the bridge's
+# local live check, then the push and the Jenkins build it starts): nothing is
+# deployed yet. The slice that deploys the platform extends the doc with its
+# deployed checks.
 strategy = "docs/slice-test-plan.md"
 
 [doc_phase]

@@ -3,8 +3,8 @@
 The notification platform's apps. The first is the notification **bridge**, one API over ntfy and
 Telegram: a producer submits and dismisses notifications under its registration's bearer token, and
 the bridge delivers them to the registration's ntfy topic and Telegram chats, updating and clearing
-them by sequence id. More apps will join it. **Nothing is built yet**: the repo is the workspace
-skeleton, and the bridge is the first slice.
+them by sequence id. More apps will join it. The bridge is built, in `bridge/`, and nothing is
+deployed yet.
 
 The design is `../NotificationsSpecs/handovers/ntfy-notifications-2026-10-10.md` (§3 the bridge,
 §4 the deployment), with its research companion beside it. Read it before writing code. What it
@@ -45,6 +45,9 @@ file under the YouTrack project **`N`** (Notifications).
 
 ## Key documentation
 
+- [`README.md`](README.md): the bridge's API reference, which the adapters code against.
+- [`docs/bridge-configuration.md`](docs/bridge-configuration.md): the bridge's environment,
+  registrations file, state and image.
 - [`docs/change-discipline.md`](docs/change-discipline.md): the rules every change obeys.
 - [`docs/slice-test-plan.md`](docs/slice-test-plan.md): how a slice is verified before it is pushed.
 - [`docs/slice-doc-plan.md`](docs/slice-doc-plan.md): which doc surfaces a shipped slice updates.

@@ -53,8 +53,9 @@ it.
 
 ### State holds ids, not content
 
-The bridge's SQLite stores what an update needs (message ids, priority, timestamps) and no title or
-message text. A change that wants to store content reopens a ruling, and that is the operator's.
+The bridge's SQLite stores what an update needs (message ids, ntfy generations, priorities,
+timestamps) and no title or message text. A change that wants to store content reopens a ruling,
+and that is the operator's.
 
 ## No secrets in this repo
 
