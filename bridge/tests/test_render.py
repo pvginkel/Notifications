@@ -78,6 +78,10 @@ RENDERER_TABLE = [
     ("[x](javascript:alert(1))", "[x](javascript:alert(1))"),
     ("![alt](https://e.invalid/p.png)", '<a href="https://e.invalid/p.png">alt</a>'),
     (
+        r"![*a* &amp; `b` [c](https://e.invalid) d\_e](https://e.invalid/p.png)",
+        '<a href="https://e.invalid/p.png">a &amp; b c d_e</a>',
+    ),
+    (
         "![](https://e.invalid/p.png)",
         '<a href="https://e.invalid/p.png">https://e.invalid/p.png</a>',
     ),

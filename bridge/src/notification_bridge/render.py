@@ -164,9 +164,22 @@ def _inlines(nodes: list[SyntaxTreeNode], within: frozenset[str]) -> tuple[_Node
                     rendered.append(_Element("a", text, href=href))
             case "image":
                 src = node.attrs["src"]
-                alt = node.content or src
+                alt = _plain(node.children) or src
                 rendered.append(alt if "a" in within else _Element("a", (alt,), href=src))
     return tuple(rendered)
+
+
+def _plain(nodes: list[SyntaxTreeNode]) -> str:
+    """The text of an image's description with its markup stripped: its alt, as CommonMark's
+    reference renderer gives it. markdown-it leaves an escape or an entity there `text_special`."""
+    return "".join(
+        "\n"
+        if node.type in {"softbreak", "hardbreak"}
+        else node.content
+        if node.type in {"text", "text_special", "code_inline"}
+        else _plain(node.children)
+        for node in nodes
+    )
 
 
 def _fit(nodes: tuple[_Node, ...], limit: int) -> tuple[_Node, ...]:
