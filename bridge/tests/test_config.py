@@ -80,7 +80,9 @@ def test_the_registrations_file_defaults_to_the_contract_path(make_env):
     env = make_env(REGISTRATIONS, **SECRETS)
     del env["BRIDGE_REGISTRATIONS_FILE"]
 
-    with pytest.raises(ConfigError, match="registrations file /etc/notification-bridge/"):
+    with pytest.raises(
+        ConfigError, match=r"registrations file /etc/notification-bridge/registrations\.yaml: "
+    ):
         load_config(env)
 
 
