@@ -1,0 +1,17 @@
+[project]
+name = "notification-bridge"
+version = "0"
+description = "One API over ntfy and Telegram: producers submit and dismiss notifications per registration."
+requires-python = ">=3.13"
+dependencies = [
+    "pyyaml>=6.0.2",
+    "starlette>=0.48",
+    "uvicorn>=0.37",
+]
+
+[project.scripts]
+notification-bridge = "notification_bridge.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14.0"]
+build-backend = "uv_build"

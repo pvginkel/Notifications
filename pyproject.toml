@@ -12,12 +12,14 @@ requires-python = ">=3.13"
 package = false
 
 [tool.uv.workspace]
-members = []
+members = ["bridge"]
 
 [dependency-groups]
 # Ruff is pinned so the lint gate does not float with whatever the python
 # toolchain image ships.
 dev = [
+    # Starlette's TestClient runs on httpx2.
+    "httpx2>=2.13",
     "pytest>=9",
     "ruff==0.17.0",
 ]
