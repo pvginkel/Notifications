@@ -28,8 +28,8 @@ kc project test
 kc project lint
 ```
 
-Read each exit code directly, never through a pipe: a `kc project` verb prints its output only on
-failure. `0` is green. `3` means no statement ran, which is neither a pass nor a failure. The
+Read each exit code directly, never through a pipe, which hands back the last command's code, not
+the verb's. `0` is green. `3` means no statement ran, which is neither a pass nor a failure. The
 manifest declares no `build:`, because Jenkins builds the images (section 4) and section 2 proves
 them by hand, so `build` exits `3`: the close-out report says it ran nothing, never that it is green.
 `test` runs the suite and `lint` the linter: each must exit `0`, and a `3` from either means the
