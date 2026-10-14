@@ -24,8 +24,10 @@ Other repos the work touches, checked out beside this one:
 - **`../NotificationsSpecs`**: the spec repo (the design, the slices). It is a separate git repo
   and a working tree shared by parallel sessions: commit there separately, and stage files by name,
   never `git add -A`.
-- **`../NotificationsDeploy`**: the deployment. ntfy and the bridge run in one pod, synced by Argo
-  CD, and CI pins the images into its `config/prd/values.yaml`.
+- **`../NotificationsDeploy`**: the deployment, the `notifications` chart: ntfy, the bridge and the
+  icons' nginx in one pod, gated but not live, since Argo CD's registry has no entry for it yet. CI
+  pins the bridge's image into its `config/prd/values.yaml`, and its `kc project test` reads this
+  repo's `docs/architecture/architecture.yaml`.
 - The adapters live with their producers, not here: Jenkins' and Alertmanager's in DockerImages,
   KubeCoder's in the KubeCoder monorepo.
 

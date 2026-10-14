@@ -212,3 +212,5 @@ workspace's `uv.lock` sits beside it.
 check over the whole tree, and `kc project test` runs the pytest suite over the whole tree, with
 fakes in place of ntfy and Telegram.
 `cexec aac-tools arch-validate docs/architecture/architecture.yaml` validates the architecture model.
+That the bridge's edge to ntfy resolves is proved by NotificationsDeploy's `kc project test`, which
+reads this file from a checkout beside this one.
