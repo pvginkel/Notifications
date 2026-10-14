@@ -5,10 +5,10 @@ spec_repo = "../NotificationsSpecs"
 design_philosophy = "docs/change-discipline.md"
 
 [test_phase]
-# Local for now (this repo's and NotificationsDeploy's gates, every touched
-# image built by hand, the bridge's local live check, then both pushes and the
-# Jenkins build this repo's starts): nothing is deployed yet. The slice that
-# deploys the platform extends the doc with its deployed checks.
+# This repo's and NotificationsDeploy's gates, every touched image built by
+# hand, the bridge's local live check, then both pushes and the Jenkins build
+# this repo's starts, then the deployed checks: Argo CD deploys
+# NotificationsDeploy's main to prd.
 strategy = "docs/slice-test-plan.md"
 
 [doc_phase]
