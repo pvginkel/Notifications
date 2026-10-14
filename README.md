@@ -178,9 +178,9 @@ all the same. When it refuses the delete of a dismiss, the message is edited to 
   - a message over Telegram's limit of 4096 characters, as shown, is cut and ends in `…`.
 
 ntfy keeps a message as notification text only while it is under ntfy's message size limit, 4096
-bytes of UTF-8 by default. The bridge passes the message on as it is, so a message near 4096
-characters, or a shorter one in a non-Latin script, can be over that. ntfy then takes it as an
-attachment, or refuses it, as the ntfy server is set up.
+bytes of UTF-8 by default. The bridge cuts the message under that limit, on a character boundary,
+ending in `…`, so a message near 4096 characters, or a shorter one in a non-Latin script, still
+arrives as text. A cut inside a Markdown construct leaves it open, and ntfy shows it as text.
 
 ### Observability
 

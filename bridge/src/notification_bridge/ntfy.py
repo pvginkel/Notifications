@@ -11,7 +11,7 @@ import httpx2
 
 from notification_bridge.api import Submission
 from notification_bridge.config import Registration
-from notification_bridge.render import ntfy_headers, ntfy_id
+from notification_bridge.render import ntfy_body, ntfy_headers, ntfy_id
 from notification_bridge.state import NtfyRow, State
 
 # How much of a refusal's body that is not ntfy's JSON error the outcome quotes.
@@ -78,7 +78,7 @@ class Ntfy:
             "POST",
             f"/{registration.ntfy.topic}",
             headers=headers,
-            content=submission.message.encode(),
+            content=ntfy_body(submission.message),
         )
 
     async def _clear(

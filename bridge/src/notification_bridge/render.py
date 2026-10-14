@@ -1,9 +1,9 @@
 """What each channel receives for a submit: pure functions, no I/O.
 
-ntfy takes the Markdown as it is, under a per-registration id per sequence and generation, with its
-title, priority and icon as headers. Telegram takes the Markdown parsed as CommonMark and rendered
-to the HTML subset its `parse_mode=HTML` accepts, headed by the priority mark and the title, and cut
-in its visible text to Telegram's limit.
+ntfy takes the Markdown as it is, cut under its message size limit, under a per-registration id per
+sequence and generation, with its title, priority and icon as headers. Telegram takes the Markdown
+parsed as CommonMark and rendered to the HTML subset its `parse_mode=HTML` accepts, headed by the
+priority mark and the title, and cut in its visible text to Telegram's limit.
 """
 
 import base64
@@ -37,6 +37,9 @@ MARKS = {
 
 # Telegram's limit on a message's text after entity parsing.
 TELEGRAM_LIMIT = 4096
+# ntfy's default message size limit, in bytes of UTF-8: a body that reaches it is taken as an
+# attachment, or refused when attachments are off (util/peek.go, server/server.go).
+NTFY_LIMIT = 4096
 ELLIPSIS = "\N{HORIZONTAL ELLIPSIS}"
 RULE = "\N{EM DASH}" * 3
 
@@ -53,6 +56,18 @@ def ntfy_id(registration: str, sequence_id: str, generation: int) -> str:
     """
     data = f"{generation}:{sequence_id}".encode()
     return hashlib.blake2b(data, digest_size=16, key=registration.encode()).hexdigest()
+
+
+def ntfy_body(message: str) -> bytes:
+    """The message as the body of a publish: its UTF-8, cut under ntfy's limit on a character
+    boundary, an ellipsis marking the cut. A cut may leave a Markdown construct open, which ntfy
+    shows as text."""
+    body = message.encode()
+    if len(body) < NTFY_LIMIT:
+        return body
+    # A cut inside a character leaves its first bytes, which the decode drops.
+    kept = body[: NTFY_LIMIT - 1 - len(ELLIPSIS.encode())].decode(errors="ignore")
+    return (kept + ELLIPSIS).encode()
 
 
 def ntfy_headers(

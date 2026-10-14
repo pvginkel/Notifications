@@ -46,6 +46,13 @@ def test_a_first_submit_publishes_under_generation_0_and_writes_the_row(bridge, 
     assert bridge.rows() == [ntfy_row(4, 0, NOON)]
 
 
+def test_a_message_over_ntfys_limit_is_published_cut_under_it(bridge, fake_ntfy):
+    bridge.submit(sequence_id="slice-061", message="é" * 3000)
+
+    [call] = fake_ntfy.calls
+    assert call.body == "é" * 2046 + "…"
+
+
 def test_a_submit_with_no_priority_publishes_at_default(bridge, fake_ntfy):
     bridge.submit(sequence_id="slice-061", message="m")
 

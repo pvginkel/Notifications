@@ -6,8 +6,10 @@ from html.parser import HTMLParser
 
 import pytest
 from notification_bridge.render import (
+    NTFY_LIMIT,
     TELEGRAM_LIMIT,
     Priority,
+    ntfy_body,
     ntfy_headers,
     ntfy_id,
     telegram_html,
@@ -209,6 +211,28 @@ def test_the_limit_counts_utf16_units_and_never_splits_a_character():
 
     assert rendered == "🙂" * (TELEGRAM_LIMIT // 2 - 1) + "…"
     assert visible_units(rendered) == TELEGRAM_LIMIT - 1
+
+
+def test_an_ntfy_body_under_the_limit_is_the_message_whole():
+    message = "a" * (NTFY_LIMIT - 1)
+
+    assert ntfy_body(message) == message.encode()
+
+
+def test_an_ntfy_body_at_the_limit_is_cut_under_it():
+    body = ntfy_body("a" * NTFY_LIMIT)
+
+    assert body == ("a" * (NTFY_LIMIT - 4) + "…").encode()
+    assert len(body) == NTFY_LIMIT - 1
+
+
+def test_the_ntfy_limit_counts_bytes_and_never_splits_a_character():
+    assert ntfy_body("é" * (NTFY_LIMIT // 2 - 1)) == ("é" * (NTFY_LIMIT // 2 - 1)).encode()
+
+    body = ntfy_body("a" + "🙂" * (NTFY_LIMIT // 4))
+
+    assert body.decode() == "a" + "🙂" * (NTFY_LIMIT // 4 - 2) + "…"
+    assert len(body) < NTFY_LIMIT
 
 
 def test_the_ntfy_id_is_the_keyed_blake2b_of_the_generation_and_the_sequence_id():
