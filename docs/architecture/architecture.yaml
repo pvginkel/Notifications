@@ -43,12 +43,12 @@ relations:
     type: Assignment
 
   # --- What the bridge consumes ---
-  # ntfy, which shows and clears the notifications on the phones. The target is ntfy's API, the
-  # ApplicationService `svc:ntfy-api` (label "ntfy API") whose declaration under this UUID is
-  # `notifications-deploy`'s.
+  # ntfy, which shows and clears the notifications on the phones. ntfy provides the pub/sub broker
+  # capability: `notifications-deploy`'s judgment layer declares the ntfy product as realizing it,
+  # and that producer resolves this edge through NTFY_URL's loopback host to the pod's own ntfy.
   - id: rel:notification-bridge-consumes-ntfy
     source: app:notification-bridge,e98c89db-f37c-4aa1-b0f8-fe4bd60ec37c
-    target: svc:16e7e972-37b2-4a2d-b08e-dbfee1b4a1f2
+    target: cap:pub-sub-broker
     type: Association
     boundBy: "env:NTFY_URL"
 
