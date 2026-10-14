@@ -1,0 +1,47 @@
+// Validates Notifications' hand-authored architecture model, docs/architecture/*.yaml, against the
+// architecture service, and archives it as the producer's artifact, which AaC/Architecture
+// collects.
+//
+// Controller config:
+//   - Job: AaC/Notifications
+//   - SCM: pvginkel/Notifications, branch main
+//   - Script Path: Jenkinsfile.architecture
+
+library identifier: 'JenkinsPipelineUtils', changelog: false
+
+pipeline {
+    agent {
+        kubernetes {
+            inheritFrom 'jenkins-agent'
+            yaml podYaml(templates: ['aac-tools'])
+        }
+    }
+
+    options {
+        disableConcurrentBuilds(abortPrevious: true)
+        skipDefaultCheckout()
+        timeout(time: 60, unit: 'MINUTES')
+        timestamps()
+    }
+
+    triggers {
+        githubPush()
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Validate architecture') {
+            steps {
+                script {
+                    architectureProducer.validate(files: ['docs/architecture/*.yaml'])
+                    architectureProducer.archive(files: ['docs/architecture/*.yaml'])
+                }
+            }
+        }
+    }
+}
