@@ -6,19 +6,26 @@ names it. Read it top to bottom and do what it says.
 
 ## What this phase proves today
 
-The gates, a by-hand build of every image the slice touched, the bridge's local live check against
-a fake ntfy, then the push and the Jenkins build it starts: the image in the registry and its pin
-in `NotificationsDeploy`. Nothing is deployed yet, so section 5 is empty until the slice that
+The gates of this repo and of `NotificationsDeploy`, a by-hand build of every image the slice
+touched, the bridge's local live check against a fake ntfy, then the pushes: `NotificationsDeploy`'s,
+which deploys nothing and starts nothing, and this repo's, with the Jenkins build it starts: the
+image in the registry and its pin in `NotificationsDeploy`. Nothing is deployed yet: no Argo CD
+Application renders `NotificationsDeploy`'s chart, so section 5 is empty until the slice that
 deploys the platform writes it. Each step is executed once before it is written down
 ([`slice-doc-plan.md`](slice-doc-plan.md) says so). There is no dev instance and no `devlock`.
 
 ## 0. Preconditions
 
-The driver has ff-merged every code phase into the base branch. Confirm the tree is clean
-(`git status --short`) before starting. A dirty tree here means an earlier phase left something
-behind, and that is a finding, not something to tidy away.
+The driver has ff-merged every code phase into its repo's base branch, `main` here and in
+`NotificationsDeploy`. The two checkouts sit side by side, `../NotificationsDeploy` beside this one,
+each with `main` checked out at the commit being shipped. Confirm both trees are clean
+(`git status --short`, `git -C ../NotificationsDeploy status --short`) before starting. A dirty tree
+here means an earlier phase left something behind, and that is a finding, not something to tidy
+away.
 
-Every verb below runs from the repo root, because `kc project` is cwd-bound.
+`kc project` is cwd-bound. This repo's verbs run from its root, as does every command below;
+`NotificationsDeploy`'s verbs run from that repo's root, in a `(cd ../NotificationsDeploy && …)`
+subshell.
 
 ## 1. The gates
 
@@ -37,6 +44,29 @@ verb was unwired, which is a finding. No gate is known red, so a failure is this
 
 Run the suite once directly too, `cexec python uv run --all-packages pytest`, and read the count
 off its summary line: `[ OK ]` looks the same for an empty suite as for a full one.
+
+### `NotificationsDeploy`'s gates
+
+```bash
+(cd ../NotificationsDeploy && kc project lint); echo "exit=$?"
+(cd ../NotificationsDeploy && kc project test); echo "exit=$?"
+```
+
+They run on every slice, whether or not it touched `NotificationsDeploy`: its `test` generates the
+`notifications-deploy` architecture artifact with this repo's `docs/architecture/architecture.yaml`
+overlaid through `../Notifications`, so a change here can turn it red there. Their exit codes read as
+this repo's do: each must exit `0`, and a `3` is an unwired verb, which is a finding. No gate is
+known red.
+
+`lint` resolves the chart's library dependency, then runs `helm lint` on the prd values and
+`terraform fmt -check`. `test` renders the chart as Argo CD's Application does and asserts on the
+objects, validates the Terraform and plans it against mocked providers, then generates the
+architecture artifact, validates it, and asserts that ntfy serves the bridge and holds the public
+host. Each test script prints an `ok:` line into the log `kc` names on its last line
+(`full output: …`). Unlike this repo's suite, `test` reaches the estate's services: the library
+chart from `https://charts.home`, the Terraform providers through the `iac` container's mirror, and
+the published architecture dataset at `architecture.webathome.org`. A failure the log shows to be
+one of them unreachable is a check that cannot run (see Findings), not a red gate.
 
 ## 2. The images
 
@@ -160,11 +190,87 @@ tail -n 1 tmp/live/bridge.log
 `exit=0` is both stopped. `bridge.pid` holds the pid of `uv run`, which hands the signal on to the
 bridge, so the bridge's log ends `Finished server process [<pid>]`.
 
-## 4. Push, and the build it starts
+## 4. The pushes, and the build this repo's starts
 
 Pushing is this phase's job. The driver ff-merges locally and never pushes a code phase, then checks
 before the doc phase that every repo in `state.json`'s `bases` reached `origin`. Push each one,
-honouring any repo named in `plan.md`'s `## Push holds`.
+honouring any repo named in `plan.md`'s `## Push holds`, and push `NotificationsDeploy` before this
+repo: this repo's push starts a build that ends by committing a pin to `NotificationsDeploy`'s
+`origin/main`, which a later `NotificationsDeploy` push would have to take in first.
+
+### `NotificationsDeploy`
+
+A push of its `main` deploys nothing and starts nothing. Argo CD's registry, ArgoCDDeploy's
+`releases/values.yaml`, has no entry for it, so no Application renders it. No Jenkins job builds it,
+and the repository has no push hook. Read that before the push:
+
+```bash
+gh api repos/pvginkel/ArgoCDDeploy/contents/releases/values.yaml --jq .content | base64 -d | grep -c NotificationsDeploy
+cexec iac kubectl --context prd -n argocd-prd get applications.argoproj.io notifications-prd
+curl -sS -o /dev/null -w '%{http_code}\n' -u "$JENKINS_USER:$JENKINS_TOKEN" "$JENKINS_URL/job/AaC/job/NotificationsDeploy/api/json"
+gh api repos/pvginkel/NotificationsDeploy/hooks --jq length
+```
+
+They answer `0`, `Error from server (NotFound): applications.argoproj.io "notifications-prd" not
+found`, `404` and `0`. Any other answer means the push would deploy or build something: that is a
+finding, and `NotificationsDeploy` is not pushed.
+
+Then read what there is to push, and what origin gained meanwhile:
+
+```bash
+git -C ../NotificationsDeploy fetch origin
+git -C ../NotificationsDeploy rev-list --count origin/main..main
+git -C ../NotificationsDeploy log --format='%h %an %s' main..origin/main
+```
+
+The count is the commits this slice has to push. With `0` there is nothing to push, and the close-out
+report says so. The log lists what `origin/main` carries that `main` lacks, and it holds pin commits
+alone: every green build of this repo adds one, by `jenkins`, reading
+`ci: image pins from Notifications #<n>`, which changes nothing but the line
+`  notificationBridge: ':<n>'` in `config/prd/values.yaml`. Any other commit there is a finding, and
+`NotificationsDeploy` is not pushed: settling it is the operator's. With the log empty, push.
+Otherwise bring `main` onto `origin/main` first:
+
+```bash
+git -C ../NotificationsDeploy rebase origin/main; echo "exit=$?"
+```
+
+`exit=0` is a clean rebase. A slice commit that rewrote the lines around the pin conflicts with a pin
+commit: `CONFLICT (content): Merge conflict in config/prd/values.yaml` and `exit=1`. Origin's pin
+wins, and the slice's lines around it stay. At each stop that conflicts there, take the replayed
+commit's file (in a rebase, `--theirs` is the commit being replayed), put origin's pin line back, and
+continue:
+
+```bash
+pin=$(git -C ../NotificationsDeploy show origin/main:config/prd/values.yaml | grep '^  notificationBridge:')
+git -C ../NotificationsDeploy checkout --theirs config/prd/values.yaml
+sed -i "s|^  notificationBridge: .*|$pin|" ../NotificationsDeploy/config/prd/values.yaml
+git -C ../NotificationsDeploy add config/prd/values.yaml
+GIT_EDITOR=true git -C ../NotificationsDeploy rebase --continue; echo "exit=$?"
+```
+
+With pin commits alone in the log, that loses nothing of origin's. A conflict anywhere but the pin
+line is a finding: run `git -C ../NotificationsDeploy rebase --abort`, and `NotificationsDeploy` is
+not pushed. After the rebase the tree differs from the one section 1 gated by origin's pin alone,
+which the gates hold to a `:<build>` suffix, never to a number:
+
+```bash
+git -C ../NotificationsDeploy diff ORIG_HEAD main
+```
+
+It shows the pin line's change and nothing else. Push, then read that origin has every commit and
+that nothing came of it:
+
+```bash
+git -C ../NotificationsDeploy push origin main; echo "exit=$?"
+git -C ../NotificationsDeploy fetch origin
+git -C ../NotificationsDeploy rev-list --count origin/main..main
+cexec iac kubectl --context prd -n argocd-prd get applications.argoproj.io notifications-prd
+```
+
+It passes when the push exits `0`, the count reads `0` and the Application is still not found.
+
+### This repo, and the build it starts
 
 A push of this repo's `main` starts a build of the Jenkins job `Notifications`, at Jenkins' root,
 through the repo's push hook. The build runs the suite, builds
