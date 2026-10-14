@@ -3,8 +3,8 @@
 The notification platform's apps. The first is the notification **bridge**, one API over ntfy and
 Telegram: a producer submits and dismisses notifications under its registration's bearer token, and
 the bridge delivers them to the registration's ntfy topic and Telegram chats, updating and clearing
-them by sequence id. More apps will join it. The bridge is built, in `bridge/`, and nothing is
-deployed yet.
+them by sequence id. More apps will join it. The bridge is built, in `bridge/`, and deployed in
+prd.
 
 The design is `../NotificationsSpecs/handovers/ntfy-notifications-2026-10-10.md` (§3 the bridge,
 §4 the deployment), with its research companion beside it. Read it before writing code. What it
@@ -25,9 +25,9 @@ Other repos the work touches, checked out beside this one:
   and a working tree shared by parallel sessions: commit there separately, and stage files by name,
   never `git add -A`.
 - **`../NotificationsDeploy`**: the deployment, the `notifications` chart: ntfy, the bridge and the
-  icons' nginx in one pod, gated but not live, since Argo CD's registry has no entry for it yet. CI
-  pins the bridge's image into its `config/prd/values.yaml`, and its `kc project test` reads this
-  repo's `docs/architecture/architecture.yaml`.
+  icons' nginx in one pod. Argo CD deploys its `main` to prd as the Application `notifications-prd`,
+  so a push of it deploys. CI pins the bridge's image into its `config/prd/values.yaml`, and its
+  `kc project test` reads this repo's `docs/architecture/architecture.yaml`.
 - The adapters live with their producers, not here: Jenkins' and Alertmanager's in DockerImages,
   KubeCoder's in the KubeCoder monorepo.
 
