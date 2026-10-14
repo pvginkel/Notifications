@@ -366,10 +366,9 @@ timeout 15m sh -c "until cexec iac kubectl --context prd -n argocd-prd get appli
 k -n notifications-prd rollout status deployment/notifications --timeout=10m; echo "exit=$?"
 ```
 
-Each reads `exit=0`, and the second `deployment "notifications" successfully rolled out`. Argo CD
-syncs only a commit that changes what the chart renders: after a push that changes nothing there,
-the first reads `exit=124`, and 5.2 shows the Application `Synced` at `$rev` with no new operation.
-Any other `exit=124` is a finding.
+Each reads `exit=0`, and the second `deployment "notifications" successfully rolled out`. Every
+commit syncs, whatever it changes: the chart renders the commit into the ConfigMap
+`tf-presync-revision`. So `exit=124` is a finding.
 
 ### 5.1 Both leaves exist (bao)
 
@@ -480,11 +479,12 @@ address, and `NtfyDown`, `NotificationBridgeDown` and `NotificationDeliveryFaili
 
 Two submits and their dismisses, as the `kubecoder-dev` registration, through the real ntfy and
 Telegram: the messages land on that registration's ntfy topic and in the KubeCoder dev bot's
-Telegram chat, and the dismisses delete them. The registration's token never leaves the pod. Two
-Python helpers run in the bridge container through `exec`, post to its own loopback API and read the
-token from the container's own environment, so the command line carries the variable's name and
-never its value. No command here prints the container's environment, and nothing written here holds
-a value. Write the helpers under `tmp/`, which git ignores:
+Telegram chat, and each dismiss clears the notification on ntfy and deletes the message in the
+chat. The registration's token never leaves the pod. Two Python helpers run in the bridge container
+through `exec`, post to its own loopback API and read the token from the container's own
+environment, so the command line carries the variable's name and never its value. No command here
+prints the container's environment, and nothing written here holds a value. Write the helpers under
+`tmp/`, which git ignores:
 
 ```bash
 mkdir -p tmp/deployed
