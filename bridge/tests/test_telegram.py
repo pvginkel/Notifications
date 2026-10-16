@@ -514,6 +514,21 @@ def test_a_submit_with_a_url_sends_the_same_text_with_one_open_button(bridge, fa
     assert fake_telegram.keyboards == {DM: {1: open_button(URL)["inline_keyboard"]}}
 
 
+def test_an_update_with_a_url_edits_the_same_text_with_one_open_button(bridge, fake_telegram):
+    submit = {"sequence_id": "slice-061", "priority": "high", "title": "Ansible 061"}
+    bridge.submit(**submit, message="started", registration="dm")
+    fake_telegram.sent()
+
+    bridge.submit(**submit, message="**061** done", url=URL, registration="dm")
+    bridge.submit(**submit, message="**061** done", registration="dm")
+
+    opened, bare = fake_telegram.calls
+    text = "\N{LARGE ORANGE CIRCLE} <b>Ansible 061</b>\n<b>061</b> done"
+    assert (opened.method, bare.method) == ("editMessageText", "editMessageText")
+    assert bare.fields == {"chat_id": DM, "message_id": 1, "text": text, **EDITED}
+    assert opened.fields == {**bare.fields, "reply_markup": open_button(URL)}
+
+
 def test_a_resubmit_with_the_url_keeps_the_button_and_one_without_it_takes_it_off(
     bridge, fake_ntfy, fake_telegram
 ):
