@@ -48,12 +48,15 @@ curl -sS "$NOTIFICATIONS_URL/v1/submit" \
 | `title` | string | optional | 250 characters | Plain text; `""` is no title |
 | `priority` | string | optional | `min`, `low`, `default`, `high` or `max` | Defaults to `default` |
 | `sequence_id` | string | optional | 1 to 256 characters | What a later submit or dismiss names it by |
+| `url` | string | optional | 2048 characters, `http` or `https` with a host, visible ASCII | The notification's link: what a tap opens on ntfy, and an Open button on Telegram |
 
 - The limits count characters (Unicode code points), not bytes.
 - A field sent as `null` is taken as omitted.
 - A field the table does not list is refused, and so is a string that holds a lone surrogate
   (`"\ud800"`), which has no UTF-8 form.
 - The priority names are lower case: `"HIGH"` is refused.
+- A `url` holds only `!` to `~`: anything else, a space included, is percent-encoded. Beyond that,
+  the bridge checks only its scheme and that it has a host.
 
 ### Dismiss
 
@@ -68,7 +71,7 @@ curl -sS "$NOTIFICATIONS_URL/v1/submit" \
 | Status | When | Body |
 |---|---|---|
 | `200` | The body was valid and each of the registration's channels was tried | The [per-channel result](#the-per-channel-result) |
-| `400` | The body is not JSON or not an object, holds an unknown field or a value of the wrong type, lacks the message or the sequence id it needs, has a blank message, a `sequence_id` outside 1 to 256 characters, a `title` over 250, an unknown priority or a string with a lone surrogate | `{"error": "<why>"}` |
+| `400` | The body is not JSON or not an object, holds an unknown field or a value of the wrong type, lacks the message or the sequence id it needs, has a blank message, a `sequence_id` outside 1 to 256 characters, a `title` over 250, a `url` over 2048 characters, holding anything but visible ASCII or lacking an `http` or `https` scheme or a host, an unknown priority or a string with a lone surrogate | `{"error": "<why>"}` |
 | `401` | The token is missing, not a bearer token, or unknown. The answer carries `WWW-Authenticate: Bearer` | `{"error": "unknown bearer token"}` |
 | `413` | The message is over 4096 characters and the rest of the body is valid | `{"error": "<why>"}` |
 | `404`, `405` | Another path, or another method | Plain text |
@@ -94,14 +97,15 @@ A `200` answers a JSON object with one key per channel the registration has, `nt
 - A call that fails in more than one step lists each, joined by `; `.
 
 Each channel is tried on its own, ntfy first and then each chat in turn, and a failure in one never
-costs another. Nothing is queued and nothing is retried. Each failure is counted in `/metrics` and
-logged.
+costs another. Nothing is queued and nothing is retried, but for a Telegram call whose Open button
+Telegram refused, which is made once more without it (see [Rendering](#rendering)). Each failure is
+counted in `/metrics` and logged.
 
 A call to ntfy or Telegram gives up when it stalls for 10 seconds, and the calls run one after the
-other. A submit makes at most two calls to ntfy and three to Telegram per chat, and a dismiss one
+other. A submit makes at most two calls to ntfy and four to Telegram per chat, and a dismiss one
 and two. A sender that waits for the result sets its own timeout above that, or it can give up on
-a notification that was delivered: with one chat, a submit can take about 50 seconds when both
-channels hang.
+a notification that was delivered: with one chat, a submit can take about a minute when both
+channels are slow.
 
 ### Sequence ids
 
@@ -116,11 +120,11 @@ channels hang.
 A sequence id belongs to its registration: two registrations that use the same id never touch each
 other's notifications, also when they share an ntfy topic.
 
-The bridge keeps no title and no text, only what an update needs: per channel, the priority of the
-sequence and where it is shown. That is kept until a dismiss, or until the sequence has gone 90 days
-without a submit. After that the bridge has forgotten it. A submit under the id then sends a new
-Telegram message and leaves the old one, and a dismiss leaves that message. On ntfy, a forgotten
-sequence whose priority never rose is still updated and cleared in place.
+The bridge keeps no title, no text and no url, only what an update needs: per channel, the
+priority of the sequence and where it is shown. That is kept until a dismiss, or until the sequence
+has gone 90 days without a submit. After that the bridge has forgotten it. A submit under the id
+then sends a new Telegram message and leaves the old one, and a dismiss leaves that message. On
+ntfy, a forgotten sequence whose priority never rose is still updated and cleared in place.
 
 - A dismiss for a sequence id the bridge holds nothing for still clears on ntfy, and is `ok` on
   Telegram without a call.
@@ -167,7 +171,7 @@ all the same. When it refuses the delete of a dismiss, the message is edited to 
 ### Rendering
 
 - **ntfy** gets the message as Markdown (`X-Markdown: yes`), the title as the notification's title,
-  the priority, and the registration's icon.
+  the priority, the registration's icon, and the url as what a tap opens (`X-Click`).
 - **Telegram** gets the message as Telegram HTML, parsed as CommonMark plus `~~strikethrough~~`:
   - bold, italic, strikethrough, inline code, code blocks, links and blockquotes keep their form;
   - a heading is a bold line, a list item a `•` line, or a numbered one in an ordered list;
@@ -175,7 +179,16 @@ all the same. When it refuses the delete of a dismiss, the message is edited to 
   - HTML in the message shows as text;
   - the first line is the mark and the title in bold; with no title, the mark starts the message;
   - link previews are off;
-  - a message over Telegram's limit of 4096 characters, as shown, is cut and ends in `…`.
+  - a message over Telegram's limit of 4096 characters, as shown, is cut and ends in `…`;
+  - the url is one button under the message, `Open`.
+
+Each submit shows the url it carries, and only that one: an update without a url leaves the ntfy
+notification no click and takes the Open button off the Telegram message. The *Superseded.* and
+*Dismissed.* edits carry no button. When Telegram refuses a send or an edit that carries the button
+with a `400`, other than for a message that is unchanged or gone, the bridge makes that call once
+more without it, and the chat's result is that second call's: the message lands without Open, and
+the ntfy click is unaffected. So a url Telegram does not take for a button costs the button, not
+the message, and the refusal is logged (see [Observability](#observability)).
 
 ntfy keeps a message as notification text only while it is under ntfy's message size limit, 4096
 bytes of UTF-8 by default. The bridge cuts the message under that limit, on a character boundary,
@@ -190,6 +203,9 @@ arrives as text. A cut inside a Markdown construct leaves it open, and ntfy show
   on Telegram.
 - Each submit and dismiss logs one JSON line to stderr: the registration, the sequence id and each
   channel's result, or for a refused one, its status and why.
+- A refused Open button logs one more, at `warning`: `"event": "button refused"`, with the
+  `registration`, the `sequence_id` (`null` for a one-shot), the `chat` and Telegram's refusal as
+  `error`, quoted as the result quotes it.
 
 ## Layout
 

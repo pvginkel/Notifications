@@ -87,12 +87,11 @@ directory must exist and be writable by the bridge's user: the bridge does not c
 it is missing, the start fails with a traceback ending `sqlite3.OperationalError: unable to open
 database file`.
 
-The file holds one table, of what an update and a dismiss need and never a title or a text: per open
-sequence, a row for its ntfy notification (its priority and the generation it is published under)
-and one for its message in each Telegram chat (its priority and the message id), each with when it
-was last written. At
-start and every 24 hours after, the bridge deletes the rows last written more than 90 days ago, and
-logs `"event": "prune"` with the number `removed`.
+The file holds one table, of what an update and a dismiss need and never a title, a text or a
+url: per open sequence, a row for its ntfy notification (its priority and the generation it is
+published under) and one for its message in each Telegram chat (its priority and the message id),
+each with when it was last written. At start and every 24 hours after, the bridge deletes the
+rows last written more than 90 days ago, and logs `"event": "prune"` with the number `removed`.
 
 A bridge that starts without the file has forgotten every open sequence, with the consequences the
 README's [Sequence ids](../README.md#sequence-ids) gives for the prune, so the directory belongs on
