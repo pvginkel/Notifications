@@ -15,6 +15,9 @@ repos:
 
 capabilities:
   github: rw
+  # ~/.kube/config-prd-write: the slice test plan's deployed submits exec into
+  # the bridge container in prd.
+  kubePrdWrite: true
 
 tools:
   # The apps' uv workspace: Python with uv and ruff.
