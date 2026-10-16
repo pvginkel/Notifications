@@ -198,6 +198,15 @@ honouring any repo named in `plan.md`'s `## Push holds`, and push `Notifications
 repo: this repo's push starts a build that ends by committing a pin to `NotificationsDeploy`'s
 `origin/main`, which a later `NotificationsDeploy` push would have to take in first.
 
+One case reverses that order: a `NotificationsDeploy` change that needs the slice's bridge image,
+because the running image refuses it, such as a registrations key the old bridge does not know
+(`bridge/src/notification_bridge/config.py` refuses an unknown key at start). Pushed first, it
+deploys at once against the old image: a registrations change restarts the Deployment's one pod,
+`Recreate`, the old bridge refuses to start, and ntfy is down with it until this repo's pin syncs.
+For such a change, push this repo first and follow its build to the pin, then wait for the pin's
+deploy (both in "This repo, and the build it starts" below). Only then push `NotificationsDeploy`,
+whose rebase takes the pin commit in.
+
 Both pushes deploy, and section 5 proves what they deployed. Read the Application before them, so
 that what section 5 finds is the pushes':
 
@@ -321,15 +330,32 @@ git -C ../NotificationsDeploy show origin/main:config/prd/values.yaml | grep 'no
 
 It passes when the tags include `"<n>"` and `"latest"`, a commit by `jenkins` reads
 `ci: image pins from Notifications #<n>`, and the file reads `notificationBridge: ':<n>'`. That pin
-commit is a push to `NotificationsDeploy`'s `main`, and section 5 proves its deploy.
+commit is a push to `NotificationsDeploy`'s `main`. With this repo pushed last, section 5 proves its
+deploy.
+
+In the reversed order, wait here for the pin's deploy before pushing `NotificationsDeploy`. `$pin` is
+the pin commit, which the `log` above shows on top:
+
+```bash
+pin=$(git -C ../NotificationsDeploy rev-parse origin/main)
+timeout 15m sh -c "until cexec iac kubectl --context prd -n argocd-prd get application notifications-prd \
+  -o jsonpath='{.status.operationState.syncResult.revision} {.status.operationState.phase} {.status.sync.status} {.status.health.status}' \
+  | grep -qx '$pin Succeeded Synced Healthy'; do sleep 15; done"; echo "exit=$?"
+cexec iac kubectl --context prd -n notifications-prd rollout status deployment/notifications --timeout=10m </dev/null; echo "exit=$?"
+cexec iac kubectl --context prd -n notifications-prd get pods -o jsonpath='{range .items[*].status.containerStatuses[?(@.name=="notification-bridge")]}{.image}{"\n"}{end}' </dev/null
+```
+
+It passes when both read `exit=0` and the last command prints `registry:5000/notification-bridge:<n>`
+alone: the new bridge image runs in prd. Then push `NotificationsDeploy`, as its section above says.
+Anything else is a finding, and `NotificationsDeploy` is not pushed.
 
 ## 5. The deployed checks
 
 Argo CD's Application `notifications-prd`, in `argocd-prd`, deploys `NotificationsDeploy`'s `main`
 into the namespace `notifications-prd`: one pod of the Deployment `notifications`, holding ntfy, the
 bridge and the icons' nginx. These checks prove it live after section 4's pushes, on the commit
-`NotificationsDeploy`'s `origin/main` holds then, which is this repo's pin commit when this repo was
-pushed. With neither repo pushed, nothing new is deployed, and the close-out report says this
+`NotificationsDeploy`'s `origin/main` holds then: this repo's pin commit when this repo was pushed
+last, and `NotificationsDeploy`'s own push when section 4 reversed the order. With neither repo pushed, nothing new is deployed, and the close-out report says this
 section did not run.
 
 The checks run from this environment, each with the access it names and no more:
