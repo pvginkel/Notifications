@@ -85,12 +85,12 @@ and the close-out report says so.
 ## 3. The local live check
 
 The bridge boots in the `python` tool container against a fake ntfy, and is proven by what it does:
-a submit and a dismiss, `/healthz` and `/metrics`. It never reaches the real ntfy or Telegram. The
-bridge's Telegram API URL is fixed, so the check's one registration has no `telegram` channel, and
-the suite's fake Telegram is what proves that side. The tool containers share this pod's network:
-what the `python` container serves answers on `127.0.0.1` here, and a process it starts under
-`nohup … &` outlives the `cexec` call. Everything the check writes is under `tmp/live/`, which git
-ignores.
+a submit with a url and a dismiss, `/healthz` and `/metrics`. It never reaches the real ntfy or
+Telegram. The bridge's Telegram API URL is fixed, so the check's one registration has no `telegram`
+channel, and the suite's fake Telegram is what proves that side. The tool containers share this
+pod's network: what the `python` container serves answers on `127.0.0.1` here, and a process it
+starts under `nohup … &` outlives the `cexec` call. Everything the check writes is under
+`tmp/live/`, which git ignores.
 
 Set it up: an icon file, an empty state directory (the bridge does not create it), a registrations
 file whose token is a `$NAME` placeholder, and the fake, which answers every publish and clear `200`
@@ -154,7 +154,8 @@ Submit, read the metrics, dismiss, read them again:
 ```bash
 curl -sS -w ' %{http_code}\n' http://127.0.0.1:18090/v1/submit -H 'Authorization: Bearer live-token' \
   -H 'Content-Type: application/json' -d '{"sequence_id": "live-1", "priority": "high",
-  "title": "Live check", "message": "**bridge** live at step `submit`"}'
+  "title": "Live check", "message": "**bridge** live at step `submit`",
+  "url": "https://grafana.home/d/live-check"}'
 curl -fsS http://127.0.0.1:18090/metrics | grep -E '^notifications_(total|open_rows)'
 curl -sS -w ' %{http_code}\n' http://127.0.0.1:18090/v1/dismiss -H 'Authorization: Bearer live-token' \
   -H 'Content-Type: application/json' -d '{"sequence_id": "live-1"}'
@@ -169,8 +170,9 @@ It passes when:
   channel;
 - the fake printed two requests. The first is `POST /live` carrying
   `Authorization: Bearer live-ntfy-token`, `X-Markdown: yes`, `X-Priority: 4`,
-  `X-Icon: https://icons.example/live.png`, an `X-Title` (an RFC 2047 encoded word) and an
-  `X-Sequence-ID` of 32 hex characters, with the message as its body. The second is
+  `X-Icon: https://icons.example/live.png`, an `X-Title` (an RFC 2047 encoded word), an
+  `X-Sequence-ID` of 32 hex characters and `X-Click: https://grafana.home/d/live-check`, the
+  submit's url, with the message as its body. The second is
   `PUT /live/<that id>/clear`;
 - after the submit, `notifications_open_rows{channel="ntfy",registration="live"}` is `1.0` and
   `notifications_total` with `outcome="ok"` is `1.0`; after the dismiss they are `0.0` and `2.0`.
@@ -510,7 +512,11 @@ address, and `NtfyDown`, `NotificationBridgeDown` and `NotificationDeliveryFaili
 Two submits and their dismisses, as the `kubecoder-dev` registration, through the real ntfy and
 Telegram: the messages land on that registration's ntfy topic and in the KubeCoder dev bot's
 Telegram chat, and each dismiss clears the notification on ntfy and deletes the message in the
-chat. The registration's token never leaves the pod. Two Python helpers run in the bridge container
+chat. The first submit carries a url on an internal `.home` host, which Telegram shows as an Open
+button, and a resubmit of its sequence id without the url edits the message and takes the button
+away. Only the real Telegram can refuse the button: the suite's fake takes any.
+
+The registration's token never leaves the pod. Two Python helpers run in the bridge container
 through `exec`, post to its own loopback API and read the token from the container's own
 environment, so the command line carries the variable's name and never its value. No command here
 prints the container's environment, and nothing written here holds a value. Write the helpers under
@@ -550,7 +556,9 @@ Then submit, read the metrics after each step, dismiss, and read the bridge's lo
 ```bash
 x() { kw exec deploy/notifications -c notification-bridge -- python -c "$(cat "$1")" "${@:2}"; }
 x tmp/deployed/metrics.py
-x tmp/deployed/submit.py /v1/submit '{"sequence_id": "deployed-check-state-row", "title": "Notifications deployed check", "message": "A submit with a sequence id, to prove it writes a state row. It is dismissed in a moment."}'
+x tmp/deployed/submit.py /v1/submit '{"sequence_id": "deployed-check-state-row", "title": "Notifications deployed check", "message": "A submit with a sequence id and a url on an internal host. It is dismissed in a moment.", "url": "https://grafana.home/d/deployed-check"}'
+x tmp/deployed/metrics.py
+x tmp/deployed/submit.py /v1/submit '{"sequence_id": "deployed-check-state-row", "title": "Notifications deployed check", "message": "The same sequence id resubmitted without the url: the button and click go."}'
 x tmp/deployed/metrics.py
 x tmp/deployed/submit.py /v1/submit '{"sequence_id": "deployed-check-blockquote", "title": "Notifications deployed check", "message": "> A blockquote holding a [link](https://ntfy.webathome.org/v1/health) and `inline code`, which Telegram has to accept."}'
 x tmp/deployed/metrics.py
@@ -563,17 +571,21 @@ kw logs deploy/notifications -c notification-bridge --since=5m
 The first read is the baseline: a fresh pod's counters start at 0, and the open rows are the state
 volume's, 0 while no sender holds a sequence open. It passes when:
 
-- the state-row submit answers `200 {"ntfy":"ok","telegram":"ok"}`, and
+- the state-row submit, with its url, answers `200 {"ntfy":"ok","telegram":"ok"}`, and
   `notifications_open_rows` rises by 1 on `ntfy` and by 1 on `telegram`: the ntfy row and one row
   per Telegram chat, and `kubecoder-dev` has one chat;
+- its resubmit without the url answers `200 {"ntfy":"ok","telegram":"ok"}`, and the open rows stay
+  where the submit left them: it edits the same message;
 - the blockquote submit answers `200 {"ntfy":"ok","telegram":"ok"}`: Telegram accepted a
   blockquote holding a link and code. `notifications_total{channel="telegram",outcome="ok"}` has
-  risen by 2 and the open rows by 2 on each channel;
+  risen by 3 and the open rows by 2 on each channel;
 - each dismiss answers `200 {"ntfy":"ok","telegram":"ok"}`. The open rows are back at the baseline,
-  `notifications_total` with `outcome="ok"` has risen by 4 on each channel, and with
+  `notifications_total` with `outcome="ok"` has risen by 5 on each channel, and with
   `outcome="error"` by 0;
-- the bridge's log holds the four `submit` and `dismiss` lines at level `info`, each outcome `ok` on
-  both channels, and no `warning`.
+- the bridge's log holds the five `submit` and `dismiss` lines at level `info`, each outcome `ok` on
+  both channels, and no `warning`. A `button refused` line is Telegram refusing the Open button:
+  the bridge then sends the message without it and still answers `telegram` `ok`, so that line is
+  the only sign.
 
 ### 5.9 Back to zero, with no error sample (no credential)
 
