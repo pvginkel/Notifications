@@ -364,6 +364,7 @@ The checks run from this environment, each with the access it names and no more:
 - `kw`: `~/.kube/config-prd-write`, cluster-admin. Only the submits (5.8) take it, for `exec`.
 - `bao`: OpenBao's `openbao-admin` AppRole, which the Ansible checkout's `scripts/bao-login.sh`
   logs in with, from that repo's vault. Listing and metadata only: no command here reads a value.
+  An environment without the checkout at `/work/Ansible` lacks it.
 - `gh`: the environment's GitHub token, admin on `NotificationsDeploy`, which reading its hooks
   takes.
 - No credential: Prometheus at `http://prometheus.home`, and ntfy's public vhost.
@@ -375,7 +376,8 @@ repo's root:
 ```bash
 k()  { cexec iac kubectl --context prd "$@" </dev/null; }
 kw() { cexec iac kubectl --kubeconfig "$HOME/.kube/config-prd-write" --context prd -n notifications-prd "$@" </dev/null; }
-. /work/Ansible/scripts/bao-login.sh
+if [ -f /work/Ansible/scripts/bao-login.sh ]; then . /work/Ansible/scripts/bao-login.sh
+else echo 'no Ansible checkout: 5.1 is not verified'; fi
 rev=$(git -C ../NotificationsDeploy rev-parse origin/main)
 ```
 
@@ -397,6 +399,8 @@ commit syncs, whatever it changes: the chart renders the commit into the ConfigM
 `tf-presync-revision`. So `exit=124` is a finding.
 
 ### 5.1 Both leaves exist (bao)
+
+Where the setup printed `no Ansible checkout`, this check cannot run, and 5.1 is not verified.
 
 ```bash
 cexec iac bao kv list kv/eso/prd/notifications/prd </dev/null
