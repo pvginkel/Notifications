@@ -72,6 +72,7 @@ class Ntfy:
             priority=submission.priority,
             title=submission.title,
             sequence=sequence,
+            url=submission.url,
         )
         return await self._call(
             "publish",

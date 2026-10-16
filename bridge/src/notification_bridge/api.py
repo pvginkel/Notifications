@@ -5,12 +5,14 @@ A field sent as JSON `null` is taken as omitted.
 
 import json
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from notification_bridge.render import Priority
 
 MAX_SEQUENCE_ID = 256
 MAX_TITLE = 250
 MAX_MESSAGE = 4096
+MAX_URL = 2048
 PRIORITIES = {priority.name.lower(): priority for priority in Priority}
 
 
@@ -29,10 +31,11 @@ class Submission:
     priority: Priority
     title: str | None
     message: str
+    url: str | None
 
 
 def parse_submission(body: bytes) -> Submission:
-    fields = _fields(body, {"sequence_id", "priority", "title", "message"})
+    fields = _fields(body, {"sequence_id", "priority", "title", "message", "url"})
     sequence_id = _sequence_id(fields)
 
     priority = fields.get("priority", "default")
@@ -51,7 +54,7 @@ def parse_submission(body: bytes) -> Submission:
     if not message.strip():
         raise Refusal(400, "message is blank")
 
-    return Submission(sequence_id, PRIORITIES[priority], title, message)
+    return Submission(sequence_id, PRIORITIES[priority], title, message, _url(fields))
 
 
 def parse_dismissal(body: bytes) -> str:
@@ -80,6 +83,28 @@ def _sequence_id(fields: dict[str, object]) -> str | None:
     if sequence_id is not None and not 1 <= len(sequence_id) <= MAX_SEQUENCE_ID:
         raise Refusal(400, f"sequence_id must be 1 to {MAX_SEQUENCE_ID} characters")
     return sequence_id
+
+
+def _url(fields: dict[str, object]) -> str | None:
+    """An absolute http or https URL of visible ASCII: it travels as it is in ntfy's `X-Click`
+    header and in Telegram's JSON."""
+    url = _string(fields, "url")
+    if url is None:
+        return None
+    if len(url) > MAX_URL:
+        raise Refusal(400, f"url is {len(url)} characters, over the limit of {MAX_URL}")
+    if not url.isascii():
+        raise Refusal(400, "url must be ASCII, the rest percent-encoded")
+    if not all("!" <= char <= "~" for char in url):
+        raise Refusal(400, "url holds whitespace or a control character")
+    try:
+        parts = urlsplit(url)
+        absolute = parts.scheme in {"http", "https"} and bool(parts.hostname)
+    except ValueError:
+        absolute = False
+    if not absolute:
+        raise Refusal(400, "url must be an absolute http or https URL")
+    return url
 
 
 def _string(fields: dict[str, object], key: str) -> str | None:

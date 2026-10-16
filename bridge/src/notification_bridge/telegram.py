@@ -5,6 +5,11 @@ the message and sends it fresh, so that it notifies. A dismiss deletes it. Teleg
 delete a message past 48 hours in a private chat, and the message is then edited to a fixed line:
 the state holds no text to edit it to. A message Telegram no longer has, deleted by hand, is sent
 fresh on the next resubmit.
+
+A submit's url shows as one Open button under its message, and every edit without a url carries an
+empty keyboard, so a button an earlier submit left goes. When Telegram refuses a send or an edit
+that carries the button as a bad request, the call is made once more without it, and the refusal is
+logged: the message lands without Open. No other call is made twice.
 """
 
 from dataclasses import dataclass
@@ -14,6 +19,7 @@ import httpx2
 
 from notification_bridge.api import Submission
 from notification_bridge.config import Registration
+from notification_bridge.logs import log
 from notification_bridge.render import Priority, telegram_html
 from notification_bridge.state import State, TelegramRow
 
@@ -30,6 +36,11 @@ DISMISSED = "<i>Dismissed.</i>"
 SUPERSEDED = "<i>Superseded.</i>"
 
 NO_PREVIEW = {"is_disabled": True}
+
+OPEN = "Open"
+# What an edit without a url carries: the Bot API does not say what an edit that leaves out
+# `reply_markup` does to the message's buttons.
+NO_BUTTONS = {"inline_keyboard": []}
 
 # How much of an answer that is not Telegram's JSON the outcome quotes.
 QUOTED = 200
@@ -57,9 +68,9 @@ class Telegram:
             {} if sequence_id is None else self._state.telegram_rows(registration.name, sequence_id)
         )
         failures = []
-        for chat in self._chats(registration):
+        for chat in self._chats(registration, sequence_id):
             message_id, chat_failures = await _show(
-                chat, rows.get(chat.id), text, submission.priority
+                chat, rows.get(chat.id), text, submission.priority, submission.url
             )
             failures += [f"{chat.id}: {failure}" for failure in chat_failures]
             if sequence_id is not None and message_id is not None:
@@ -80,7 +91,7 @@ class Telegram:
         """
         rows = self._state.telegram_rows(registration.name, sequence_id)
         failures = []
-        for chat in self._chats(registration):
+        for chat in self._chats(registration, sequence_id):
             row = rows.get(chat.id)
             if row is None:
                 continue
@@ -90,15 +101,19 @@ class Telegram:
                 self._state.delete_telegram_row(registration.name, sequence_id, chat.id)
         return "; ".join(failures) or None
 
-    def _chats(self, registration: Registration) -> list["_Chat"]:
+    def _chats(self, registration: Registration, sequence_id: str | None) -> list["_Chat"]:
         telegram = registration.telegram
-        return [_Chat(self._client, telegram.bot_token, chat_id) for chat_id in telegram.chat_ids]
+        return [
+            _Chat(self._client, telegram.bot_token, chat_id, registration.name, sequence_id)
+            for chat_id in telegram.chat_ids
+        ]
 
 
 async def _show(
-    chat: "_Chat", row: TelegramRow | None, text: str, priority: Priority
+    chat: "_Chat", row: TelegramRow | None, text: str, priority: Priority, url: str | None
 ) -> tuple[int | None, list[str]]:
-    """The id of the message that shows `text` in the chat, None when none does, and what failed.
+    """The id of the message that shows `text`, and Open to `url`, in the chat, None when none
+    does, and what failed.
 
     With a row, a priority above the row's takes the old message down and sends a fresh one, and
     any other priority edits the old one.
@@ -109,12 +124,12 @@ async def _show(
             # The fresh message goes out whatever the take-down answered.
             failures = await _take_down(chat, row.message_id, SUPERSEDED)
         else:
-            edited = await chat.edit(row.message_id, text)
+            edited = await chat.edit(row.message_id, text, url)
             if edited.failure is None or edited.says(NOT_MODIFIED):
                 return row.message_id, []
             if not edited.says(EDIT_NOT_FOUND):
                 return None, [edited.failure]
-    sent = await chat.send(text, priority)
+    sent = await chat.send(text, priority, url)
     if sent.failure is not None:
         return None, [*failures, sent.failure]
     return sent.result["message_id"], failures
@@ -125,7 +140,7 @@ async def _take_down(chat: "_Chat", message_id: int, line: str) -> list[str]:
     deleted = await chat.delete(message_id)
     if deleted.failure is None or deleted.says(DELETE_NOT_FOUND):
         return []
-    edited = await chat.edit(message_id, line)
+    edited = await chat.edit(message_id, line, None)
     if edited.failure is None or edited.says(NOT_MODIFIED) or edited.says(EDIT_NOT_FOUND):
         return []
     return [deleted.failure, edited.failure]
@@ -136,34 +151,48 @@ class _Answer:
     result: Any = None
     failure: str | None = None  # why Telegram did not take the call; None when it did
     description: str = ""  # Telegram's description of a refusal, lower-cased
+    bad_request: bool = False  # Telegram refused the call with 400
 
     def says(self, text: str) -> bool:
         return text in self.description
 
 
 class _Chat:
-    """One chat, as the registration's bot reaches it."""
+    """One chat, as the registration's bot reaches it for one sequence, None for a one-shot."""
 
-    def __init__(self, client: httpx2.AsyncClient, bot_token: str, chat_id: str) -> None:
+    def __init__(
+        self,
+        client: httpx2.AsyncClient,
+        bot_token: str,
+        chat_id: str,
+        registration: str,
+        sequence_id: str | None,
+    ) -> None:
         self.id = chat_id
         self._client = client
         self._bot_token = bot_token
+        self._registration = registration
+        self._sequence_id = sequence_id
 
-    async def send(self, text: str, priority: Priority) -> _Answer:
-        return await self._call(
+    async def send(self, text: str, priority: Priority, url: str | None) -> _Answer:
+        return await self._call_with_open(
             "send",
             "sendMessage",
+            url,
+            {},
             text=text,
             parse_mode="HTML",
             link_preview_options=NO_PREVIEW,
             disable_notification=priority <= Priority.LOW,
         )
 
-    async def edit(self, message_id: int, text: str) -> _Answer:
+    async def edit(self, message_id: int, text: str, url: str | None) -> _Answer:
         # An edit that leaves out the link preview options can bring the preview back.
-        return await self._call(
+        return await self._call_with_open(
             "edit",
             "editMessageText",
+            url,
+            {"reply_markup": NO_BUTTONS},
             message_id=message_id,
             text=text,
             parse_mode="HTML",
@@ -172,6 +201,30 @@ class _Chat:
 
     async def delete(self, message_id: int) -> _Answer:
         return await self._call("delete", "deleteMessage", message_id=message_id)
+
+    async def _call_with_open(
+        self, step: str, method: str, url: str | None, bare: dict[str, object], **fields: object
+    ) -> _Answer:
+        """The call with an Open button to `url`, or with `bare` when there is no url.
+
+        When Telegram refuses the button's call as a bad request, other than with the refusals the
+        bridge acts on, it is made once more with `bare` instead, and its answer is that call's.
+        """
+        if url is None:
+            return await self._call(step, method, **fields, **bare)
+        opened = await self._call(
+            step, method, **fields, reply_markup={"inline_keyboard": [[{"text": OPEN, "url": url}]]}
+        )
+        if not opened.bad_request or opened.says(NOT_MODIFIED) or opened.says(EDIT_NOT_FOUND):
+            return opened
+        refusal = {
+            "registration": self._registration,
+            "sequence_id": self._sequence_id,
+            "chat": self.id,
+            "error": opened.failure,
+        }
+        log.warning("button refused", extra={"fields": refusal})
+        return await self._call(step, method, **fields, **bare)
 
     async def _call(self, step: str, method: str, **fields: object) -> _Answer:
         try:
@@ -197,4 +250,5 @@ def _answer(step: str, response: httpx2.Response) -> _Answer:
     return _Answer(
         failure=f"{step}: HTTP {response.status_code}: {description}",
         description=description.lower(),
+        bad_request=response.status_code == 400,
     )

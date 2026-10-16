@@ -45,6 +45,12 @@ Each channel is attempted on its own. A failure on one never costs the other, an
 reports each. There is no queue, no retry and no background redelivery: a sender that cares logs
 the body. A failure is counted and logged, never swallowed.
 
+One exception, and it is not a redelivery. When Telegram refuses a send or an edit that carries a
+submit's Open button as a bad request (`400`), the bridge makes that call once more without the
+button, at once and within the same submit. The message lands without Open, the chat's outcome is
+that second call's, and the refusal is logged at `warning`. No other call is made twice, and no
+failure of the second call is retried.
+
 ### Registrations are configuration
 
 Registrations (tokens, topics, chats, icons) come from the deploy repo's values and Secrets, never

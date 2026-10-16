@@ -8,6 +8,10 @@ import pytest
 
 PRIORITIES = ["min", "low", "default", "high", "max"]
 
+URL = "https://jenkins.example.invalid/job/ansible/61/"
+# 2048 characters, the most a url may have.
+LONGEST_URL = "https://example.invalid/" + "u" * 2024
+
 
 def test_the_paths_and_their_methods(bridge):
     assert bridge.client.get("/healthz").status_code == 200
@@ -43,8 +47,14 @@ def test_a_dismiss_answers_one_outcome_per_configured_channel(bridge):
         # The limit counts characters, not bytes or UTF-16 units.
         {"message": "\N{POLICE CARS REVOLVING LIGHT}" * 4096},
         *({"message": "m", "priority": priority} for priority in PRIORITIES),
+        {"message": "m", "url": URL},
+        {"message": "m", "url": LONGEST_URL},
+        {"message": "m", "url": "http://example.invalid/caf%C3%A9?q=a%20b#top"},
+        # A host without a dot is taken: Telegram's refusal of it costs only the button.
+        {"message": "m", "url": "http://grafana/d/61"},
+        {"message": "m", "url": "http://10.1.0.29:9090/graph"},
         # null is taken as omitted.
-        {"message": "m", "sequence_id": None, "priority": None, "title": None},
+        {"message": "m", "sequence_id": None, "priority": None, "title": None, "url": None},
     ],
 )
 def test_a_submit_takes_every_field_within_its_limit(bridge, body):
@@ -90,6 +100,44 @@ def test_a_submit_takes_every_field_within_its_limit(bridge, body):
         ),
         (b'{"message": "\\ud800"}', 400, "message holds a lone surrogate"),
         (b'{"message": "m", "sequence_id": "\\udfff"}', 400, "sequence_id holds a lone surrogate"),
+        ({"message": "m", "url": 61}, 400, "url must be a string"),
+        *(
+            ({"message": "m", "url": url}, 400, "url must be an absolute http or https URL")
+            for url in [
+                "",
+                "/job/ansible/61/",
+                "jenkins.example.invalid/job/ansible/61/",
+                "//jenkins.example.invalid/job/ansible/61/",
+                "ftp://example.invalid/build.log",
+                "tg://resolve?domain=invented_bot",
+                "javascript:alert(1)",
+                "https://",
+                "https:///job/ansible/61/",
+                "https://[::1/job",
+            ]
+        ),
+        (
+            {"message": "m", "url": "https://example.invalid/café"},
+            400,
+            "url must be ASCII, the rest percent-encoded",
+        ),
+        *(
+            ({"message": "m", "url": url}, 400, "url holds whitespace or a control character")
+            for url in [
+                "https://example.invalid/a b",
+                "https://example.invalid/a\tb",
+                "https://example.invalid/\r\nX-Injected: 1",
+                "https://example.invalid/\x00",
+                "https://example.invalid/\x7f",
+                " https://example.invalid/",
+            ]
+        ),
+        (
+            {"message": "m", "url": LONGEST_URL + "u"},
+            400,
+            "url is 2049 characters, over the limit of 2048",
+        ),
+        (b'{"message": "m", "url": "https://invented/\\ud800"}', 400, "url holds a lone surrogate"),
     ],
 )
 def test_a_submit_refuses_a_malformed_or_oversized_body(bridge, fake_ntfy, body, status, error):

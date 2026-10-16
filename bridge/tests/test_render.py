@@ -272,6 +272,7 @@ def headers(**overrides):
         "priority": Priority.HIGH,
         "title": "Build 61",
         "sequence": "0123456789abcdef0123456789abcdef",
+        "url": None,
     }
     return ntfy_headers(**(arguments | overrides))
 
@@ -326,3 +327,10 @@ def test_the_icon_name_is_quoted_into_the_url():
     assert headers(icon="my icon.png")["X-Icon"] == (
         "https://icons.invalid/registration-icons/my%20icon.png"
     )
+
+
+def test_a_url_is_the_click_and_no_url_is_no_click():
+    url = "https://jenkins.example.invalid/job/ansible/61/"
+
+    assert headers(url=url)["X-Click"] == url
+    assert "X-Click" not in headers()

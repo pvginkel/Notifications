@@ -1,9 +1,9 @@
 """What each channel receives for a submit: pure functions, no I/O.
 
 ntfy takes the Markdown as it is, cut under its message size limit, under a per-registration id per
-sequence and generation, with its title, priority and icon as headers. Telegram takes the Markdown
-parsed as CommonMark and rendered to the HTML subset its `parse_mode=HTML` accepts, headed by the
-priority mark and the title, and cut in its visible text to Telegram's limit.
+sequence and generation, with its title, priority, icon and click URL as headers. Telegram takes
+the Markdown parsed as CommonMark and rendered to the HTML subset its `parse_mode=HTML` accepts,
+headed by the priority mark and the title, and cut in its visible text to Telegram's limit.
 """
 
 import base64
@@ -77,10 +77,12 @@ def ntfy_headers(
     priority: Priority,
     title: str | None,
     sequence: str | None,
+    url: str | None,
 ) -> dict[str, str]:
     """The headers of a publish whose body is the message.
 
-    `sequence` is the `ntfy_id`, None for a one-shot.
+    `sequence` is the `ntfy_id`, None for a one-shot. A publish replaces the notification whole,
+    so one without a url leaves it no click.
     """
     headers = {
         "X-Markdown": "yes",
@@ -93,6 +95,8 @@ def ntfy_headers(
         headers["X-Title"] = f"=?utf-8?b?{base64.b64encode(title.encode()).decode()}?="
     if sequence:
         headers["X-Sequence-ID"] = sequence
+    if url:
+        headers["X-Click"] = url
     return headers
 
 

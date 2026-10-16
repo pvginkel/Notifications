@@ -27,6 +27,8 @@ NOON = "2026-10-13T12:00:00+00:00"
 ONE = "2026-10-13T13:00:00+00:00"
 TWO = "2026-10-13T14:00:00+00:00"
 
+URL = "https://jenkins.example.invalid/job/ansible/61/"
+
 
 def test_a_first_submit_publishes_under_generation_0_and_writes_the_row(bridge, fake_ntfy):
     bridge.submit(
@@ -167,6 +169,32 @@ def test_a_one_shot_publishes_with_no_id_and_leaves_no_row(bridge, fake_ntfy):
         "5",
     )
     assert bridge.rows() == []
+
+
+def test_a_url_is_the_click_and_a_resubmit_without_it_replaces_the_notification_with_none(
+    bridge, fake_ntfy
+):
+    bridge.submit(sequence_id="slice-061", message="started", url=URL)
+    response = bridge.submit(sequence_id="slice-061", message="done")
+
+    assert response.json() == {"ntfy": "ok"}
+    with_url, without = fake_ntfy.calls
+    assert with_url.headers["X-Click"] == URL
+    assert "X-Click" not in without.headers
+    assert with_url.sequence == without.sequence == jenkins("slice-061", 0)
+
+
+def test_a_rise_and_a_one_shot_carry_their_url_as_the_click(bridge, fake_ntfy):
+    bridge.submit(sequence_id="slice-061", priority="low", message="started")
+    bridge.submit(sequence_id="slice-061", priority="high", message="failed", url=URL)
+    bridge.submit(priority="max", message="/var at 99%", url=URL)
+
+    assert [(call.method, call.headers.get("X-Click")) for call in fake_ntfy.calls] == [
+        ("POST", None),
+        ("PUT", None),
+        ("POST", URL),
+        ("POST", URL),
+    ]
 
 
 def test_two_registrations_on_one_topic_publish_under_distinct_ids_with_their_own_icons(

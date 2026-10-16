@@ -2,6 +2,7 @@ from datetime import timedelta
 
 import pytest
 from notification_bridge.render import ntfy_id
+from notification_bridge.telegram import DISMISSED, SUPERSEDED
 
 # Invented chats and bots: a group of the `jenkins` registration's, a private chat of its, and the
 # one chat of `dm`, which has no ntfy.
@@ -23,6 +24,18 @@ REGISTRATIONS = f"""
 """
 
 SENT = {"parse_mode": "HTML", "link_preview_options": {"is_disabled": True}}
+NO_BUTTONS = {"inline_keyboard": []}
+EDITED = {**SENT, "reply_markup": NO_BUTTONS}
+
+URL = "https://jenkins.example.invalid/job/ansible/61/"
+# A host with no dot, whose button Telegram refuses.
+DOTLESS = "http://grafana/d/61"
+REFUSED_BUTTON = f"Bad Request: inline keyboard button URL '{DOTLESS}' is invalid: Wrong HTTP URL"
+
+
+def open_button(url: str) -> dict:
+    return {"inline_keyboard": [[{"text": "Open", "url": url}]]}
+
 
 NOON = "2026-10-13T12:00:00+00:00"
 ONE = "2026-10-13T13:00:00+00:00"
@@ -119,8 +132,8 @@ def test_an_update_at_the_same_or_a_lower_priority_edits_in_place_with_the_mark_
     assert response.json() == {"ntfy": "ok", "telegram": "ok"}
     text = "\N{LARGE BLUE CIRCLE} <b>Ansible 061</b>\ndone"
     assert [(call.method, call.fields) for call in fake_telegram.calls] == [
-        ("editMessageText", {"chat_id": GROUP, "message_id": 1, "text": text, **SENT}),
-        ("editMessageText", {"chat_id": PRIVATE, "message_id": 2, "text": text, **SENT}),
+        ("editMessageText", {"chat_id": GROUP, "message_id": 1, "text": text, **EDITED}),
+        ("editMessageText", {"chat_id": PRIVATE, "message_id": 2, "text": text, **EDITED}),
     ]
     assert fake_telegram.chats == {GROUP: {1: text}, PRIVATE: {2: text}}
     assert telegram_rows(bridge) == [
@@ -489,11 +502,213 @@ def test_every_send_and_edit_is_html_with_the_link_preview_disabled(bridge, fake
     )
 
 
-def test_the_state_holds_no_title_and_no_message_text(bridge):
-    bridge.submit(sequence_id="slice-061", title="Ansible 061", message="**061** done")
+def test_a_submit_with_a_url_sends_the_same_text_with_one_open_button(bridge, fake_telegram):
+    submit = {"priority": "high", "title": "Ansible 061", "message": "**061** done"}
+    bridge.submit(**submit, url=URL, registration="dm")
+    bridge.submit(**submit, registration="dm")
+
+    opened, bare = fake_telegram.calls
+    assert (opened.method, bare.method) == ("sendMessage", "sendMessage")
+    assert opened.fields == {**bare.fields, "reply_markup": open_button(URL)}
+    assert "reply_markup" not in bare.fields
+    assert fake_telegram.keyboards == {DM: {1: open_button(URL)["inline_keyboard"]}}
+
+
+def test_a_resubmit_with_the_url_keeps_the_button_and_one_without_it_takes_it_off(
+    bridge, fake_ntfy, fake_telegram
+):
+    bridge.submit(sequence_id="slice-061", message="started", url=URL)
+    fake_telegram.sent()
+
+    response = bridge.submit(sequence_id="slice-061", message="half way", url=URL)
+
+    assert response.json() == {"ntfy": "ok", "telegram": "ok"}
+    assert [(call.method, call.fields["reply_markup"]) for call in fake_telegram.calls] == [
+        ("editMessageText", open_button(URL))
+    ] * 2
+    button = open_button(URL)["inline_keyboard"]
+    assert fake_telegram.keyboards == {GROUP: {1: button}, PRIVATE: {2: button}}
+    fake_telegram.sent()
+
+    response = bridge.submit(sequence_id="slice-061", message="done")
+
+    assert response.json() == {"ntfy": "ok", "telegram": "ok"}
+    assert [(call.method, call.fields["reply_markup"]) for call in fake_telegram.calls] == [
+        ("editMessageText", NO_BUTTONS)
+    ] * 2
+    assert fake_telegram.keyboards == {GROUP: {}, PRIVATE: {}}
+    assert fake_telegram.chats == {GROUP: {1: "done"}, PRIVATE: {2: "done"}}
+    assert [call.headers.get("X-Click") for call in fake_ntfy.calls] == [URL, URL, None]
+
+
+def test_a_resubmit_that_only_drops_the_url_takes_the_button_off(bridge, fake_telegram):
+    bridge.submit(sequence_id="slice-061", message="m", url=URL, registration="dm")
+    unchanged = bridge.submit(sequence_id="slice-061", message="m", url=URL, registration="dm")
+
+    assert unchanged.json() == {"telegram": "ok"}
+    assert fake_telegram.keyboards == {DM: {1: open_button(URL)["inline_keyboard"]}}
+
+    response = bridge.submit(sequence_id="slice-061", message="m", registration="dm")
+
+    assert response.json() == {"telegram": "ok"}
+    assert fake_telegram.keyboards == {DM: {}}
+    assert fake_telegram.chats == {DM: {1: "m"}}
+
+
+def test_a_rise_with_a_url_supersedes_without_the_button_and_sends_fresh_with_it(
+    bridge, fake_telegram
+):
+    bridge.submit(
+        sequence_id="slice-061", priority="low", message="started", url=URL, registration="dm"
+    )
+    fake_telegram.refuse("deleteMessage", TOO_OLD)
+    fake_telegram.sent()
+
+    response = bridge.submit(
+        sequence_id="slice-061", priority="high", message="failed", url=URL, registration="dm"
+    )
+
+    assert response.json() == {"telegram": "ok"}
+    assert [(call.method, call.fields.get("reply_markup")) for call in fake_telegram.calls] == [
+        ("deleteMessage", None),
+        ("editMessageText", NO_BUTTONS),
+        ("sendMessage", open_button(URL)),
+    ]
+    text = "\N{LARGE ORANGE CIRCLE} failed"
+    assert fake_telegram.chats == {DM: {1: SUPERSEDED, 2: text}}
+    assert fake_telegram.keyboards == {DM: {2: open_button(URL)["inline_keyboard"]}}
+
+
+def test_a_dismiss_that_edits_the_message_to_dismissed_takes_the_button_off(bridge, fake_telegram):
+    bridge.submit(sequence_id="slice-061", message="started", url=URL, registration="dm")
+    fake_telegram.refuse("deleteMessage", TOO_OLD)
+    fake_telegram.sent()
+
+    response = bridge.dismiss(sequence_id="slice-061", registration="dm")
+
+    assert response.json() == {"telegram": "ok"}
+    assert [(call.method, call.fields.get("reply_markup")) for call in fake_telegram.calls] == [
+        ("deleteMessage", None),
+        ("editMessageText", NO_BUTTONS),
+    ]
+    assert fake_telegram.chats == {DM: {1: DISMISSED}}
+    assert fake_telegram.keyboards == {DM: {}}
+
+
+def test_a_refused_button_is_dropped_and_the_message_sent_without_it(
+    bridge, fake_ntfy, fake_telegram, caplog
+):
+    fake_telegram.refuse_buttons(REFUSED_BUTTON)
+
+    with caplog.at_level("INFO", logger="notification_bridge"):
+        response = bridge.submit(sequence_id="slice-061", message="m", url=DOTLESS)
+
+    assert response.json() == {"ntfy": "ok", "telegram": "ok"}
+    calls = fake_telegram.calls
+    assert [(c.method, c.fields["chat_id"], c.fields.get("reply_markup")) for c in calls] == [
+        ("sendMessage", GROUP, open_button(DOTLESS)),
+        ("sendMessage", GROUP, None),
+        ("sendMessage", PRIVATE, open_button(DOTLESS)),
+        ("sendMessage", PRIVATE, None),
+    ]
+    assert calls[0].fields == {**calls[1].fields, "reply_markup": open_button(DOTLESS)}
+    assert fake_telegram.chats == {GROUP: {1: "m"}, PRIVATE: {2: "m"}}
+    assert fake_telegram.keyboards == {GROUP: {}, PRIVATE: {}}
+    assert [row[1:3] for row in telegram_rows(bridge)] == [(GROUP, 1), (PRIVATE, 2)]
+    [publish] = fake_ntfy.calls
+    assert publish.headers["X-Click"] == DOTLESS
+    assert [(r.levelname, r.getMessage(), r.fields) for r in caplog.records] == [
+        (
+            "WARNING",
+            "button refused",
+            {
+                "registration": "jenkins",
+                "sequence_id": "slice-061",
+                "chat": chat,
+                "error": f"send: HTTP 400: {REFUSED_BUTTON}",
+            },
+        )
+        for chat in (GROUP, PRIVATE)
+    ] + [
+        (
+            "INFO",
+            "submit",
+            {
+                "registration": "jenkins",
+                "sequence_id": "slice-061",
+                "outcome": {"ntfy": "ok", "telegram": "ok"},
+            },
+        )
+    ]
+    labels = {"registration": "jenkins", "channel": "telegram"}
+    assert bridge.metric("notifications_total", **labels, outcome="ok") == 1
+    assert bridge.metric("notifications_total", **labels, outcome="error") == 0
+
+
+def test_a_refused_button_on_an_edit_is_dropped_with_the_one_already_there(bridge, fake_telegram):
+    bridge.submit(sequence_id="slice-061", message="started", url=URL, registration="dm")
+    fake_telegram.refuse_buttons(REFUSED_BUTTON)
+    fake_telegram.sent()
+
+    response = bridge.submit(
+        sequence_id="slice-061", message="done", url=DOTLESS, registration="dm"
+    )
+
+    assert response.json() == {"telegram": "ok"}
+    assert [(call.method, call.fields["reply_markup"]) for call in fake_telegram.calls] == [
+        ("editMessageText", open_button(DOTLESS)),
+        ("editMessageText", NO_BUTTONS),
+    ]
+    assert fake_telegram.chats == {DM: {1: "done"}}
+    assert fake_telegram.keyboards == {DM: {}}
+
+
+def test_a_one_shot_whose_button_is_refused_logs_no_sequence_id(bridge, fake_telegram, caplog):
+    fake_telegram.refuse_buttons(REFUSED_BUTTON)
+
+    with caplog.at_level("INFO", logger="notification_bridge"):
+        response = bridge.submit(message="m", url=DOTLESS, registration="dm")
+
+    assert response.json() == {"telegram": "ok"}
+    [refused] = [r for r in caplog.records if r.getMessage() == "button refused"]
+    assert (refused.levelname, refused.fields["sequence_id"]) == ("WARNING", None)
+
+
+@pytest.mark.parametrize(
+    "fail",
+    [
+        pytest.param(lambda fake: fake.go_down(), id="transport"),
+        pytest.param(lambda fake: fake.refuse("sendMessage", BLOCKED, status=403), id="403"),
+        pytest.param(
+            lambda fake: fake.refuse("sendMessage", "Too Many Requests: retry after 5", status=429),
+            id="429",
+        ),
+        pytest.param(
+            lambda fake: fake.refuse("sendMessage", "Internal Server Error", status=500), id="500"
+        ),
+        pytest.param(lambda fake: fake.answer("sendMessage", 400, "<html>Bad</html>"), id="html"),
+    ],
+)
+def test_a_button_call_that_fails_but_as_telegrams_bad_request_is_not_made_again(
+    bridge, fake_telegram, fail
+):
+    fail(fake_telegram)
+
+    response = bridge.submit(message="m", url=URL, registration="dm")
+
+    assert response.json()["telegram"].startswith(f"error: {DM}: send: ")
+    [call] = fake_telegram.calls
+    assert call.fields["reply_markup"] == open_button(URL)
+
+
+def test_the_state_holds_no_title_no_message_text_and_no_url(bridge):
+    bridge.submit(sequence_id="slice-061", title="Ansible 061", message="**061** done", url=URL)
 
     values = {str(value) for row in bridge.rows() for value in row.values()}
-    assert not any("Ansible" in value or "061** done" in value for value in values)
+    assert not any(
+        "Ansible" in value or "061** done" in value or "example.invalid" in value
+        for value in values
+    )
 
 
 def test_telegrams_outcomes_are_counted_and_its_rows_gauged_per_chat(bridge, fake_telegram):

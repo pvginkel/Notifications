@@ -124,18 +124,22 @@ class FakeTelegram:
     """The Bot API as the bridge reaches it: records every call and keeps each chat's messages.
 
     It answers an edit or a delete of a message the chat does not have as Telegram does (not
-    found), and an edit that changes nothing (not modified). It takes every other call unless told
-    to refuse.
+    found), and an edit that changes neither the text nor the keyboard (not modified). It takes
+    every other call unless told to refuse. An edit that leaves out `reply_markup` fails the test:
+    what Telegram does with one is undocumented.
     """
 
     def __init__(self) -> None:
         self.calls: list[TelegramCall] = []
         # Each chat's messages: message id to text.
         self.chats: dict[str, dict[int, str]] = {}
+        # Each chat's messages that carry buttons: message id to their inline keyboard.
+        self.keyboards: dict[str, dict[int, list]] = {}
         self._message_ids = itertools.count(1)
         self._refusals: dict[
             tuple[str, str | None], Callable[[httpx2.Request], httpx2.Response]
         ] = {}
+        self._button_refusal: str | None = None
 
     @property
     def transport(self) -> httpx2.MockTransport:
@@ -152,6 +156,11 @@ class FakeTelegram:
         """Answer every `method` call with `status` and a body that is not Telegram's."""
         self._refusals[(method, None)] = lambda request: httpx2.Response(status, text=text)
 
+    def refuse_buttons(self, description: str) -> None:
+        """Refuse every send or edit that carries a button with 400, as Telegram refuses a button
+        URL it does not take."""
+        self._button_refusal = description
+
     def go_down(self) -> None:
         def refuse_connection(request: httpx2.Request) -> httpx2.Response:
             raise httpx2.ConnectError("[Errno 111] Connection refused", request=request)
@@ -163,9 +172,11 @@ class FakeTelegram:
 
     def recover(self) -> None:
         self._refusals = {}
+        self._button_refusal = None
 
     def delete_by_hand(self, chat: str, message_id: int) -> None:
         del self.chats[chat][message_id]
+        self.keyboards[chat].pop(message_id, None)
 
     def sent(self) -> list[tuple[str, str, int | None]]:
         """Each call's method, chat and message id (None on a send); the record is cleared."""
@@ -186,27 +197,40 @@ class FakeTelegram:
         refusal = self._refusals.get((method, chat)) or self._refusals.get((method, None))
         if refusal is not None:
             return refusal(request)
+        if method == "editMessageText" and "reply_markup" not in fields:
+            raise AssertionError("the bridge left reply_markup out of an edit")
+        keyboard = fields.get("reply_markup", {"inline_keyboard": []})["inline_keyboard"]
+        if keyboard and self._button_refusal is not None:
+            return _refused(self._button_refusal)
         messages = self.chats.setdefault(chat, {})
+        keyboards = self.keyboards.setdefault(chat, {})
         if method == "sendMessage":
             message_id = next(self._message_ids)
             messages[message_id] = fields["text"]
+            if keyboard:
+                keyboards[message_id] = keyboard
             return _taken({"message_id": message_id, "chat": {"id": chat}, "text": fields["text"]})
         message_id = fields["message_id"]
         if method == "editMessageText":
             if message_id not in messages:
                 return _refused("Bad Request: message to edit not found")
-            if messages[message_id] == fields["text"]:
+            if (messages[message_id], keyboards.get(message_id, [])) == (fields["text"], keyboard):
                 return _refused(
                     "Bad Request: message is not modified: specified new message content and"
                     " reply markup are exactly the same as a current content and reply markup of"
                     " the message"
                 )
             messages[message_id] = fields["text"]
+            if keyboard:
+                keyboards[message_id] = keyboard
+            else:
+                keyboards.pop(message_id, None)
             return _taken({"message_id": message_id, "chat": {"id": chat}, "text": fields["text"]})
         if method == "deleteMessage":
             if message_id not in messages:
                 return _refused("Bad Request: message to delete not found")
             del messages[message_id]
+            keyboards.pop(message_id, None)
             return _taken(True)
         raise AssertionError(f"the bridge called {method}")
 
