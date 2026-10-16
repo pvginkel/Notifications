@@ -595,6 +595,27 @@ def test_a_dismiss_that_edits_the_message_to_dismissed_takes_the_button_off(brid
     assert fake_telegram.keyboards == {DM: {}}
 
 
+def test_an_update_with_a_url_after_a_delete_by_hand_sends_fresh_with_the_button(
+    bridge, fake_telegram, caplog
+):
+    bridge.submit(sequence_id="slice-061", message="started", url=URL, registration="dm")
+    fake_telegram.delete_by_hand(DM, 1)
+    fake_telegram.sent()
+
+    with caplog.at_level("INFO", logger="notification_bridge"):
+        response = bridge.submit(
+            sequence_id="slice-061", message="done", url=URL, registration="dm"
+        )
+
+    assert response.json() == {"telegram": "ok"}
+    assert [(call.method, call.fields["reply_markup"]) for call in fake_telegram.calls] == [
+        ("editMessageText", open_button(URL)),
+        ("sendMessage", open_button(URL)),
+    ]
+    assert fake_telegram.keyboards == {DM: {2: open_button(URL)["inline_keyboard"]}}
+    assert [r.getMessage() for r in caplog.records] == ["submit"]
+
+
 def test_a_refused_button_is_dropped_and_the_message_sent_without_it(
     bridge, fake_ntfy, fake_telegram, caplog
 ):
